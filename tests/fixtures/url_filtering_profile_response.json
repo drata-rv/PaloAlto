@@ -1,0 +1,23 @@
+{
+  "@status": "success",
+  "result": {
+    "@count": "1",
+    "entry": [
+      {
+        "@name": "default-url-filtering",
+        "alert": {"member": ["gambling", "hacking"]},
+        "block": {"member": ["malware", "phishing"]},
+        "allow": {"member": ["business-and-economy"]},
+        "credential-enforcement": {
+          "mode": {"disabled": "yes"},
+          "log-severity": "medium",
+          "alert": {"member": ["social-networking"]},
+          "block": {"member": []}
+        },
+        "log-http-hdr-user-agent": "yes",
+        "log-http-hdr-referer": "yes",
+        "log-http-hdr-xff": "no"
+      }
+    ]
+  }
+}

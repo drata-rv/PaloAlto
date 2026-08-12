@@ -1,0 +1,23 @@
+<response status="success">
+  <result>
+    <licenses>
+      <entry>
+        <feature>PA-VM</feature>
+        <description>Standard VM-50</description>
+        <serial>015351000001360</serial>
+        <issued>March 24, 2017</issued>
+        <expires>Never</expires>
+        <expired>no</expired>
+      </entry>
+      <entry>
+        <feature>PAN-DB URL Filtering</feature>
+        <description>Palo Alto Networks URL Filtering License</description>
+        <serial>015351000001360</serial>
+        <authcode>I1234567</authcode>
+        <issued>March 24, 2017</issued>
+        <expires>March 24, 2025</expires>
+        <expired>yes</expired>
+      </entry>
+    </licenses>
+  </result>
+</response>

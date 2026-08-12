@@ -1,0 +1,35 @@
+# Secrets / real config -- never commit these
+.env
+devices.json
+devices.*.json
+!devices.example.json
+
+# Local run output
+pan_payload.json
+*.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.Python
+.venv/
+venv/
+env/
+
+# Test / tooling artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store

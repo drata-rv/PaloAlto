@@ -1,0 +1,17 @@
+{
+  "@status": "success",
+  "result": {
+    "@count": "1",
+    "entry": [
+      {
+        "@name": "post-deny-all",
+        "from": {"member": ["any"]},
+        "to": {"member": ["any"]},
+        "source": {"member": ["any"]},
+        "destination": {"member": ["any"]},
+        "application": {"member": ["any"]},
+        "action": "deny"
+      }
+    ]
+  }
+}

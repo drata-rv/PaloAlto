@@ -1,0 +1,18 @@
+{
+  "@status": "success",
+  "result": {
+    "@count": "1",
+    "entry": [
+      {
+        "@name": "pre-allow-dns",
+        "from": {"member": ["any"]},
+        "to": {"member": ["any"]},
+        "source": {"member": ["any"]},
+        "destination": {"member": ["any"]},
+        "application": {"member": ["dns"]},
+        "action": "allow",
+        "profile-setting": {"group": {"member": ["default-profile-group"]}}
+      }
+    ]
+  }
+}

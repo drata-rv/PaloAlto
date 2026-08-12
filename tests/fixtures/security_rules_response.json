@@ -1,0 +1,34 @@
+{
+  "@status": "success",
+  "result": {
+    "@count": "2",
+    "entry": [
+      {
+        "@name": "allow-web-outbound",
+        "from": {"member": ["trust"]},
+        "to": {"member": ["untrust"]},
+        "source": {"member": ["any"]},
+        "destination": {"member": ["any"]},
+        "application": {"member": ["ssl", "web-browsing"]},
+        "action": "allow",
+        "profile-setting": {"group": {"member": ["default-profile-group"]}}
+      },
+      {
+        "@name": "block-known-bad",
+        "from": {"member": ["any"]},
+        "to": {"member": ["any"]},
+        "source": {"member": ["any"]},
+        "destination": {"member": ["any"]},
+        "application": {"member": ["any"]},
+        "action": "deny",
+        "disabled": "yes",
+        "profile-setting": {
+          "profiles": {
+            "url-filtering": {"member": ["default-url-filtering"]},
+            "spyware": {"member": ["default-dns-security"]}
+          }
+        }
+      }
+    ]
+  }
+}
