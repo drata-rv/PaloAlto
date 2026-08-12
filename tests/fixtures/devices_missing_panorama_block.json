@@ -1,0 +1,5 @@
+{
+  "panorama_managed_firewalls": [
+    {"name": "fw-azure-1", "serial": "0000000001", "host": "10.0.1.1"}
+  ]
+}

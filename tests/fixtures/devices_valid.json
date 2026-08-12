@@ -1,0 +1,13 @@
+{
+  "direct_firewalls": [
+    {"name": "fw-1", "host": "10.0.0.1", "vsys": "vsys1", "site": "Site-A"}
+  ],
+  "panorama": {
+    "host": "panorama.internal",
+    "device_groups": ["azure-dg"]
+  },
+  "panorama_managed_firewalls": [
+    {"name": "fw-azure-1", "serial": "0000000001", "host": "10.0.1.1", "site": "Azure-1"},
+    {"name": "fw-azure-2", "serial": "0000000002", "site": "Azure-2"}
+  ]
+}

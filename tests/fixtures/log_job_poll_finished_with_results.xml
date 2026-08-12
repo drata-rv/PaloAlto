@@ -1,0 +1,30 @@
+<response status="success">
+  <result>
+    <job>
+      <id>18</id>
+      <status>FIN</status>
+    </job>
+    <log>
+      <logs count="2" progress="100">
+        <entry logid="1001">
+          <domain>1</domain>
+          <receive_time>2026/08/12 09:00:00</receive_time>
+          <type>TRAFFIC</type>
+          <subtype>start</subtype>
+          <action>allow</action>
+          <src>10.0.0.5</src>
+          <dst>93.184.216.34</dst>
+        </entry>
+        <entry logid="1002">
+          <domain>1</domain>
+          <receive_time>2026/08/12 09:05:00</receive_time>
+          <type>TRAFFIC</type>
+          <subtype>deny</subtype>
+          <action>deny</action>
+          <src>10.0.0.6</src>
+          <dst>203.0.113.9</dst>
+        </entry>
+      </logs>
+    </log>
+  </result>
+</response>

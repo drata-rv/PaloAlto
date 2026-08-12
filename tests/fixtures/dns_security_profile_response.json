@@ -1,0 +1,21 @@
+{
+  "@status": "success",
+  "result": {
+    "@count": "1",
+    "entry": [
+      {
+        "@name": "default-dns-security",
+        "botnet-domains": {
+          "dns-security-categories": {
+            "entry": [
+              {"@name": "pan-dns-sec-malware", "log-level": "medium", "action": "sinkhole", "packet-capture": "single-packet"},
+              {"@name": "pan-dns-sec-phishing", "log-level": "medium", "action": "default"},
+              {"@name": "pan-dns-sec-cc", "log-level": "high", "action": "sinkhole"}
+            ]
+          },
+          "sinkhole": {"ipv4-address": "pan-sinkhole-default-ip", "ipv6-address": "::1"}
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "_comment": "Template only — no real hostnames, IPs, or serials. Fill in against your actual environment before running.",
+
+  "panorama": {
+    "host": "panorama.example.internal",
+    "verify_tls": true,
+    "site": "Site-A",
+    "device_groups": ["example-device-group"]
+  },
+
+  "direct_firewalls": [
+    {
+      "_comment": "Any firewall reachable directly on its own management hostname, not Panorama-managed. 'site' is optional (defaults to UNSPECIFIED) — used only for evidence traceability, has no effect on collection.",
+      "name": "example-fw",
+      "host": "10.0.0.1",
+      "vsys": "vsys1",
+      "verify_tls": true,
+      "site": "Site-A"
+    }
+  ],
+
+  "panorama_managed_firewalls": [
+    {
+      "_comment": "Serial is required (used for the Panorama target= proxy for license info). host is optional — omit it if this firewall is not directly network-reachable, but profiles/rules/logs will then be skipped for it (see main.py docstring).",
+      "name": "example-panorama-managed-fw",
+      "serial": "0000000000",
+      "host": "10.0.1.1",
+      "vsys": "vsys1",
+      "verify_tls": true,
+      "site": "Site-B"
+    }
+  ]
+}
