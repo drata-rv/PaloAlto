@@ -35,8 +35,6 @@ Leave everything else disabled (Commit, Config, Export, Import, IoT, Report, Use
 - `Policies.SecurityPreRules`
 - `Policies.SecurityPostRules`
 
-Everything else disabled.
-
 ---
 
 ## Setup
