@@ -14,17 +14,22 @@ This is an additive upsert, not a full replacement. Records for evidence
 that fails collection on a given run are preserved from the previous run
 rather than deleted.
 
-All normalized PAN records publish to a single DRATA_RESOURCE_ID -- one
+All normalized PAN records publish to a single PAN_DRATA_RESOURCE_ID -- one
 resource, not one per evidence type. Simpler to operate, and every record
 already carries `evidenceType` so downstream Drata rules can still filter
 by resource type within that one resource.
 
 Required environment variables:
-    DRATA_API_KEY        -- API key from Drata Settings → API Keys (used as Bearer token)
-    DRATA_CONNECTION_ID  -- Custom Connection ID (visible in Drata app URL or API)
-    DRATA_RESOURCE_ID    -- Resource ID within the connection
-                           Retrieve with:
-                           GET /custom-connections/{connectionId}?expand[]=customResources
+    DRATA_API_KEY            -- API key from Drata Settings → API Keys (used as Bearer token)
+    PAN_DRATA_CONNECTION_ID  -- Custom Connection ID (visible in Drata app URL or API)
+    PAN_DRATA_RESOURCE_ID    -- Resource ID within the connection
+                                Retrieve with:
+                                GET /custom-connections/{connectionId}?expand[]=customResources
+
+The connection/resource vars are PAN_-prefixed (DRATA_API_KEY is not) so
+this can be deployed alongside another Drata custom connection in a shared
+Azure Function App without colliding on App Settings names -- see
+pan_main.py's module docstring.
 
 Drata SA Team
 """
@@ -44,8 +49,8 @@ _BATCH_SIZE = 500
 class DrataPublisher:
     def __init__(self) -> None:
         self._url = (
-            f"{_DRATA_BASE}/custom-connections/{os.environ['DRATA_CONNECTION_ID']}"
-            f"/resources/{os.environ['DRATA_RESOURCE_ID']}/records"
+            f"{_DRATA_BASE}/custom-connections/{os.environ['PAN_DRATA_CONNECTION_ID']}"
+            f"/resources/{os.environ['PAN_DRATA_RESOURCE_ID']}/records"
         )
         self._http = requests.Session()
         self._http.headers.update({

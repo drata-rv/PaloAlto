@@ -5,8 +5,8 @@ schema, following the same connector -> normalizer -> publisher pattern
 Drata's SA team uses for its other custom connections.
 
 Every normalizer receives a raw record, a device context object (built by
-main.py's DeviceContext -- duck-typed here, not imported, to avoid a
-main.py <-> pan_drata_schemas.py import cycle) exposing:
+pan_main.py's DeviceContext -- duck-typed here, not imported, to avoid a
+pan_main.py <-> pan_drata_schemas.py import cycle) exposing:
     .id            string  -- stable device/device-group identifier
     .hostname      string  -- management hostname
     .site          string  -- free-form site/location label, e.g. "Site-A" | "Azure-<name>" | "UNSPECIFIED"
