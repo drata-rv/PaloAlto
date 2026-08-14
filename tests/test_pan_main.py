@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 from tests._helpers import load_fixture
 
-import main as m
+import pan_main as m
 
 
 def _load(fixture_name):
@@ -27,7 +27,10 @@ class TestValidateConfig(unittest.TestCase):
 
     def test_missing_drata_env_vars_raises_unless_collect_only(self):
         config = {"direct_firewalls": [{"name": "fw1", "host": "10.0.0.1"}]}
-        env_without_drata = {k: v for k, v in os.environ.items() if not k.startswith("DRATA_")}
+        env_without_drata = {
+            k: v for k, v in os.environ.items()
+            if not k.startswith("DRATA_") and not k.startswith("PAN_DRATA_")
+        }
         with patch.dict(os.environ, env_without_drata, clear=True):
             with self.assertRaises(m.ConfigError):
                 m._validate_config(config, collect_only=False)

@@ -1,5 +1,5 @@
 """
-main.py
+pan_main.py
 Palo Alto Networks (PAN-OS / Panorama) compliance evidence collector.
 
 Collects license status, URL Filtering / DNS Security (Anti-Spyware)
@@ -41,13 +41,21 @@ Required environment variables:
     PAN_PASSWORD
 Required unless --collect-only:
     DRATA_API_KEY
-    DRATA_CONNECTION_ID
-    DRATA_RESOURCE_ID
+    PAN_DRATA_CONNECTION_ID
+    PAN_DRATA_RESOURCE_ID
+
+The Drata connection/resource vars are PAN_-prefixed (DRATA_API_KEY is not)
+so this connector can be deployed alongside another Drata custom connection
+in a shared Azure Function App without colliding on App Settings names --
+those are shared app-wide across every function in an app. DRATA_API_KEY is
+left unprefixed on the assumption it's one account-level key valid for any
+Custom Connection; confirm that before relying on it if provisioning is
+per-connection instead.
 
 Usage:
-    python3 main.py --devices-config devices.json --output pan_payload.json
-    python3 main.py --devices-config devices.json --collect-only
-    python3 main.py --devices-config devices.json --resources license,security_rule
+    python3 pan_main.py --devices-config devices.json --output pan_payload.json
+    python3 pan_main.py --devices-config devices.json --collect-only
+    python3 pan_main.py --devices-config devices.json --resources license,security_rule
 
 Drata SA Team
 """
@@ -252,7 +260,7 @@ def _validate_config(config: dict, collect_only: bool) -> None:
         raise ConfigError("devices config has panorama.device_groups but no 'panorama.host' was supplied")
 
     if not collect_only:
-        missing = [v for v in ("DRATA_API_KEY", "DRATA_CONNECTION_ID", "DRATA_RESOURCE_ID") if not os.environ.get(v)]
+        missing = [v for v in ("DRATA_API_KEY", "PAN_DRATA_CONNECTION_ID", "PAN_DRATA_RESOURCE_ID") if not os.environ.get(v)]
         if missing:
             raise ConfigError(f"missing required env vars for publishing (pass --collect-only to skip publish): {missing}")
 
