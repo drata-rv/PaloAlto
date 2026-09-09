@@ -2,10 +2,10 @@
 pan_firewall.py
 Evidence-retrieval methods for a single PAN-OS firewall or Panorama host.
 
-Maps each piece of evidence typically gathered manually for a compliance
-audit to the confirmed API surface for it — see pan_api_research.md for
-full citations and the "Items That Must Be Confirmed" list of gaps this
-file's docstrings flag inline.
+Maps each piece of evidence Suncoast currently gathers manually (per the
+2026-05-12 SME scoping call) to the confirmed API surface for it — see
+pan_api_research.md for full citations and the "Items That Must Be
+Confirmed" list of gaps this file's docstrings flag inline.
 
     License status (URL Filtering, DNS Security)          -> XML API, type=op
     URL Filtering / Anti-Spyware (DNS Security) profiles   -> REST API, Objects
@@ -62,7 +62,7 @@ class PanFirewallConnector(PanBaseConnector):
         found did not include a DNS Security entry). "PAN-DB URL Filtering"
         is confirmed as the URL Filtering feature string.
 
-        CONFIRM AGAINST A LIVE FIREWALL before trusting this in
+        CONFIRM AGAINST A LIVE SUNCOAST FIREWALL before trusting this in
         production — see pan_api_research.md.
         """
         cmd = "<request><license><info/></license></request>"
@@ -198,20 +198,28 @@ class PanFirewallConnector(PanBaseConnector):
         requests as threat logs instead of DNS Security logs"
         (docs.paloaltonetworks.com/pan-os/10-1/.../dns-security-data-collection-and-logging).
 
-        NOT CONFIRMED: the exact filter/category value to isolate DNS-related
-        entries within the Threat log. `query` should be supplied once that
-        filter is confirmed against a live device's Monitor > Logs > Threat
-        tab (whose filter syntax the API's `query` parameter is documented to
-        mirror). Calling this with no query returns ALL threat log entries,
-        not DNS-specific ones.
+        CONFIRMED filter field: `category-of-threatid` (not `subtype` — that
+        field has no `dns` value at all, see pan_api_research.md section 5).
+        The production collection path (pan_main.py's `_DNS_THREAT_QUERY`)
+        already passes an OR'd query across every confirmed example category
+        value (dns-c2, adns-hijacking, ddns, parked, malware) by default —
+        this method's own default of `query=None` only matters for a caller
+        that invokes it directly (ad-hoc use, tests), not for a real run.
+
+        Still open: the full category-value enumeration isn't exhaustively
+        documented anywhere (Palo Alto's own docs say "...(etc)"), so the
+        OR'd list above may not be complete. Revisit once Suncoast confirms
+        the full list against a live device.
         """
         if query is None:
             logger.warning(
                 "get_dns_threat_logs called with no query filter — this "
                 "returns ALL threat log entries, not just DNS Security ones. "
-                "The correct filter value is an unconfirmed gap (see "
-                "pan_api_research.md section 5); confirm it against a live "
-                "device before treating results as DNS-specific evidence."
+                "The confirmed filter field is category-of-threatid (see "
+                "pan_api_research.md section 5); the production call path "
+                "already supplies one (pan_main.py's _DNS_THREAT_QUERY) -- "
+                "this warning firing means you're calling this method "
+                "directly without it."
             )
         root = self._xml_log_retrieve("threat", query=query, nlogs=nlogs)
         return self._parse_log_entries(root)

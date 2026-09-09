@@ -32,8 +32,13 @@ Leave everything else disabled (Commit, Config, Export, Import, IoT, Report, Use
 - `Objects.UrlFilteringSecurityProfiles`
 - `Objects.AntiSpywareSecurityProfiles`
 - `Policies.SecurityRules`
-- `Policies.SecurityPreRules`
-- `Policies.SecurityPostRules`
+
+`SecurityPreRules`/`SecurityPostRules` are not separate permissions — PAN-OS only
+has one RBAC toggle for rules (`Policies.SecurityRules`), and it covers all three
+rule resources (local, Panorama pre, Panorama post). Confirmed both structurally
+(the Admin Role Profile schema has exactly one rule-related field) and live
+(they don't appear as separate items in the Panorama Admin Role Profile UI
+either — not a missing tab, they don't exist).
 
 ---
 

@@ -39,7 +39,7 @@ Drata SA Team
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Optional, Union
 from xml.etree import ElementTree
 
 import requests
@@ -54,7 +54,7 @@ class PanAuthError(Exception):
 class PanAuthClient:
     """Generates and caches a single API key for one PAN-OS/Panorama host."""
 
-    def __init__(self, host: str, username: str, password: str, verify_tls: bool = True) -> None:
+    def __init__(self, host: str, username: str, password: str, verify_tls: Union[bool, str] = True) -> None:
         self.host = host
         self._username = username
         self._password = password
