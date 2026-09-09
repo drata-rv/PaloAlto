@@ -1,0 +1,170 @@
+{
+  "type": "result",
+  "key": "v2:dd2777e240ad38d022a3f2117b889a893f688a944f5b7959c137e8080387ae7f",
+  "agentId": "a67a4b19c15c81eab",
+  "result": {
+    "topic": "PAN-OS/Panorama REST API shapes for Policies/SecurityRules, SecurityPreRules, SecurityPostRules \u2014 location query params and the security-profile/profile-group attachment field name on a security rule object",
+    "confirmedFacts": [
+      {
+        "claim": "Policies/SecurityRules resource path and query params: POST/GET/PUT https://<fw>/restapi/v11.0/Policies/SecurityRules with location=vsys&vsys=<vsys_name>&name=<rule_name> for firewall-local rules. Official worked example JSON body: {\"entry\":[{\"@location\":\"vsys\",\"@name\":\"rule-example1\",\"@vsys\":\"vsys1\",\"action\":\"allow\",\"application\":{\"member\":[...]},\"category\":{\"member\":[...]},\"destination\":{\"member\":[...]},\"from\":{\"member\":[...]},\"source-hip\":{\"member\":[...]},\"destination-hip\":{\"member\":[...]},\"service\":{\"member\":[...]},\"source\":{\"member\":[...]},\"source-user\":{\"member\":[...]},\"to\":{\"member\":[...]}}]}. No profile-setting/security-profile field appears anywhere in this official example (confirmed absent, byte-checked via raw HTML fetch).",
+        "sourceUrl": "https://docs.paloaltonetworks.com/ngfw/api/pan-os-rest-api-use-cases/create-security-policy-rule-rest-api",
+        "sourceType": "official_docs",
+        "evidence": "curl -X POST 'https://10.2.1.4/restapi/v11.0/Policies/SecurityRules?location=vsys&vsys=vsys1&name=rule-example1' ... -d '{ \"entry\": [ { \"@location\": \"vsys\", \"@name\": \"rule-example1\", \"@vsys\": \"vsys1\", \"action\": \"allow\", \"application\": { \"member\": [ \"email-collaboration-apps\" ] }, ... } ] }' (fetched and grepped raw HTML directly, no profile-setting key present in the body)",
+        "confidence": "high"
+      },
+      {
+        "claim": "Policies/SecurityPreRules is the correct, officially-documented Panorama device-group resource name. Method PUT, query params location=device-group&device-group=<dg_name>&name=<rule_name>. Official worked example body includes @device-group, @location, @name attributes plus action/application/category/destination/from/source-hip/destination-hip/log-setting/log-start/service/source/source-user/target/to \u2014 still no profile-setting field shown.",
+        "sourceUrl": "https://docs.paloaltonetworks.com/ngfw/api/pan-os-rest-api-use-cases/work-with-policy-rules-on-panorama-rest-api",
+        "sourceType": "official_docs",
+        "evidence": "curl -X PUT 'http://10.2.1.7/restapi/v11.0/Policies/SecurityPreRules?LOCATION=device-group&device-group=devicegroup-7&name=allow-dns' ... -d '{ \"entry\": [ { \"@device-group\": \"devicegroup-7\", \"@location\": \"device-group\", \"@name\": \"allow-dns\", \"action\": \"allow\", \"application\": {\"member\":[\"dns\"]}, ... \"log-setting\": \"log-forwarding-LS\", \"log-start\": \"yes\", ... \"target\": {\"negate\": \"no\"}, \"to\": {\"member\":[\"any\"]} } ] }' (raw HTML grep confirms this literal string is on the page; grep for 'SecurityPostRules' on this same page returns no match \u2014 the page documents Pre Rules only, by literal example)",
+        "confidence": "high"
+      },
+      {
+        "claim": "Policies/SecurityPostRules is the resource name for Panorama device-group Post Rules (analogous to SecurityPreRules, same location=device-group&device-group=<dg>&name=<rule> pattern). This spelling was NOT found in any official docs.paloaltonetworks.com or pan.dev page that I could fetch \u2014 it only appears in Palo Alto's own LIVEcommunity forum (thread title 'Panorama Edit a security post-rule REST-API logic', #503817) and is otherwise inferred by product-level symmetry with the confirmed Pre Rules concept (Panorama pushes both Pre and Post Rules to device groups, per the official Panorama Pre/Post Rules concept docs).",
+        "sourceUrl": "https://live.paloaltonetworks.com/t5/automation-api-discussions/panorama-edit-a-security-post-rule-rest-api-logic/td-p/503817",
+        "sourceType": "community_forum",
+        "evidence": "Search-indexed snippet of the thread: \"restapi/v9.1/Policies/SecurityPostRules?location=device-group&device-group=device_group_name&name=rule_name\" \u2014 could not open the page directly (403 Forbidden on WebFetch), so this is an indexed-snippet-level confirmation, not a page I read byte-for-byte myself.",
+        "confidence": "medium"
+      },
+      {
+        "claim": "Generic REST resource-method/query-parameter table (applies to all resources including Policies): location is required on every method. Valid values on the firewall: predefined, shared (Objects only), vsys, or panorama-pushed. Valid values on Panorama: shared or device-group. vsys query param is required only if location=vsys or location=panorama-pushed. device-group query param (Panorama only) is required only if location=device-group.",
+        "sourceUrl": "https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/methods-supported-rest-api",
+        "sourceType": "official_docs",
+        "evidence": "\"location required, valid values on the firewall: predefined, shared for Objects only, vsys, or panorama-pushed ... valid values on Panorama: shared or device-group ... vsys required, if location is vsys or panorama-pushed ... device-group (Panorama only) required, if location is device-group\" \u2014 captured via direct HTML fetch + tag-stripped text dump, not model paraphrase.",
+        "confidence": "high"
+      },
+      {
+        "claim": "The exact config-tree/XML field name for a security rule's attached security-profile-group or individual security profiles is `profile-setting`, with two mutually-used children: `profile-setting/group` (a member-list referencing one Security Profile Group name) and `profile-setting/profiles/<category>` (member-lists per category: virus, spyware, vulnerability, url-filtering, file-blocking, wildfire-analysis, data-filtering). Verbatim from pan-os-python source: params.append(VersionedParamPath(\"group\", path=\"profile-setting/group\", vartype=\"member\")); member_profiles = (\"virus\",\"spyware\",\"vulnerability\",\"url-filtering\",\"file-blocking\",\"wildfire-analysis\",\"data-filtering\"); for p in member_profiles: params.append(VersionedParamPath(p, vartype=\"member\", path=\"profile-setting/profiles/{0}\".format(p))).",
+        "sourceUrl": "https://raw.githubusercontent.com/PaloAltoNetworks/pan-os-python/master/panos/policies.py",
+        "sourceType": "official_sdk",
+        "evidence": "Lines 458-482 of panos/policies.py, class SecurityRule._setup(): `params.append(VersionedParamPath(\"group\", path=\"profile-setting/group\", vartype=\"member\"))` followed by the member_profiles tuple loop building `path=\"profile-setting/profiles/{0}\".format(p)` for each of virus/spyware/vulnerability/url-filtering/file-blocking/wildfire-analysis/data-filtering. Fetched and read the raw file directly (not summarized).",
+        "confidence": "high"
+      },
+      {
+        "claim": "Independent, currently-maintained second official SDK (pango, the Go library terraform-provider-panos vendors \u2014 confirmed via terraform-provider-panos main branch go.mod pinning github.com/PaloAltoNetworks/pango v0.10.3) uses the identical structure: Entry.ProfileSetting -> XML tag `profile-setting`; ProfileSetting.Group -> XML tag `group` (util.MemberType, i.e. <group><member>x</member></group>); ProfileSetting.Profiles -> XML tag `profiles`, containing Virus/Spyware/Vulnerability/UrlFiltering/FileBlocking/WildfireAnalysis/DataFiltering (all util.MemberType) PLUS two newer categories not present in pan-os-python: Gtp and Sctp (xml tags `gtp`, `sctp` \u2014 mobile-network security profiles, PAN-OS 10.2+/11.x).",
+        "sourceUrl": "https://raw.githubusercontent.com/PaloAltoNetworks/pango/main/policies/rules/security/entry.go",
+        "sourceType": "official_sdk",
+        "evidence": "grep of the raw file: `ProfileSetting *profileSettingXml \\`xml:\"profile-setting,omitempty\"\\`` ... `Group *util.MemberType \\`xml:\"group,omitempty\"\\`` ... `Profiles *profileSettingProfilesXml \\`xml:\"profiles,omitempty\"\\`` ... `Spyware *util.MemberType \\`xml:\"spyware,omitempty\"\\``, `UrlFiltering *util.MemberType \\`xml:\"url-filtering,omitempty\"\\``, `Virus *util.MemberType \\`xml:\"virus,omitempty\"\\``. Confirmed terraform-provider-panos main branch depends on this exact module version via `grep -i pango go.mod` -> `github.com/PaloAltoNetworks/pango v0.10.3-0.20260731153743-efa43570c367`.",
+        "confidence": "high"
+      },
+      {
+        "claim": "The REST API's JSON serialization convention for every list-valued rule field that has been officially shown (application, service, source, source-user, source-hip, destination-hip, category, from, to, target.devices) is `\"<hyphenated-xml-tag-name>\": {\"member\": [\"value1\", \"value2\"]}` \u2014 an exact JSON mirror of the XML config tree's <tag><member>value</member></tag> shape, with the tag's hyphenation preserved as-is (e.g. source-hip, destination-hip). This convention is the basis for inferring (not yet officially confirmed byte-for-byte) that profile-setting would serialize as \"profile-setting\": {\"group\": {\"member\": [...]}} or \"profile-setting\": {\"profiles\": {\"virus\": {\"member\": [...]}, \"url-filtering\": {\"member\": [...]}, ...}} in REST JSON.",
+        "sourceUrl": "https://docs.paloaltonetworks.com/ngfw/api/pan-os-rest-api-use-cases/create-security-policy-rule-rest-api",
+        "sourceType": "official_docs",
+        "evidence": "Two independent official worked examples (firewall create-rule example and Panorama edit-pre-rule example) both use the identical {\"member\": [...]} wrapper for every list field, and both preserve hyphenated tag names verbatim (source-hip, destination-hip, source-user) exactly matching the XML tag names confirmed in the pan-os-python/pango source.",
+        "confidence": "high"
+      },
+      {
+        "claim": "No official docs.paloaltonetworks.com or pan.dev page found in this research pass shows a literal worked REST JSON example containing \"profile-setting\" for a security rule. This remains a genuine, unclosed gap for the REST-specific (as opposed to XML-config-tree) byte-exact shape, even though the XML/config-tree field name itself is now confirmed at high confidence via two independent official SDKs.",
+        "sourceUrl": "https://docs.paloaltonetworks.com/ngfw/api/pan-os-rest-api-use-cases/create-security-policy-rule-rest-api",
+        "sourceType": "official_docs",
+        "evidence": "Direct grep of raw fetched HTML for both the firewall create-rule page and the Panorama work-with-policy-rules page: `text.find('profile-setting')` returned -1 on both pages.",
+        "confidence": "high"
+      },
+      {
+        "claim": "PAN-OS REST API PUT is a full-replace operation, not a partial patch: official guidance is to GET the existing rule, copy its full response body, then modify only what's needed before PUTting the whole thing back. Community forum reports confirm PUTting a partial body (omitting existing fields) throws 400 errors (e.g. 'Invalid Object: ... unexpected here' / 'Invalid Body').",
+        "sourceUrl": "https://docs.paloaltonetworks.com/ngfw/api/pan-os-rest-api-use-cases/work-with-policy-rules-on-panorama-rest-api",
+        "sourceType": "official_docs",
+        "evidence": "\"Use a GET request to fetch the configuration of the Security policy pre rule you want to modify and copy the response. You can then use this as a starting point for the request body in your PUT request and modify as needed to edit the rule.\" (byte-exact from raw HTML fetch); corroborated by LIVEcommunity thread search-snippets describing 400 errors from partial PUT bodies (thread #458580, #583735) \u2014 not independently confirmed via direct page fetch (403).",
+        "confidence": "medium"
+      },
+      {
+        "claim": "The on-device /restapi-doc endpoint (https://<host>/restapi-doc/) is Palo Alto's own stated authoritative, complete, version-pinned REST resource/field reference \u2014 repeatedly pointed to by every REST use-case doc page as the place to get exact required/optional properties per resource, explicitly because the prose guides are not exhaustive. No public mirror or exported OpenAPI/Swagger JSON of this on-device spec was found anywhere online (pan.dev, GitHub, Postman) despite searching.",
+        "sourceUrl": "https://docs.paloaltonetworks.com/ngfw/api/pan-os-rest-api-use-cases/work-with-policy-rules-on-panorama-rest-api",
+        "sourceType": "official_docs",
+        "evidence": "\"Access the REST API reference documentation at https://<Panorama IP address or FQDN>/restapi-doc/ for help with the resource URIs for the different objects and policies and for help with the properties supported for each type of request.\" repeated verbatim on every REST use-case page fetched.",
+        "confidence": "high"
+      },
+      {
+        "claim": "DNS Security remains confirmed as NOT a standalone rule-attachable field \u2014 it is not a separate profile-setting/profiles child in either pan-os-python or pango. Only virus, spyware, vulnerability, url-filtering, file-blocking, wildfire-analysis, data-filtering (plus newer gtp, sctp in pango) exist as profile-setting/profiles children. This reinforces the existing project finding that DNS Security is configured inside the Anti-Spyware (spyware) profile object, not as its own rule-level field.",
+        "sourceUrl": "https://raw.githubusercontent.com/PaloAltoNetworks/pango/main/policies/rules/security/entry.go",
+        "sourceType": "official_sdk",
+        "evidence": "profileSettingProfilesXml struct fields: DataFiltering, FileBlocking, Gtp, Sctp, Spyware, UrlFiltering, Virus, Vulnerability, WildfireAnalysis \u2014 no Dns/DnsSecurity field exists anywhere in either SDK's SecurityRule/Entry definitions.",
+        "confidence": "high"
+      }
+    ],
+    "remainingGaps": [
+      "The exact byte-for-byte REST JSON shape of profile-setting (as opposed to the XML/config-tree shape, which is now confirmed) is still unverified against an official worked example or a live device's /restapi-doc. The inference (\"profile-setting\": {\"group\": {\"member\": [...]}} or {\"profiles\": {\"virus\": {\"member\": [...]}, ...}}) is structurally very likely correct by analogy to every other confirmed list field, but has not been literally observed in any official REST JSON example, forum-posted REST body, or public Swagger/OpenAPI export. Needs a live device GET on a rule that actually has a profile or profile-group attached, or a look at that device's own /restapi-doc.",
+      "Policies/SecurityPostRules as a literal REST resource name could not be confirmed against any official docs.paloaltonetworks.com or pan.dev page \u2014 only a LIVEcommunity forum thread title/search-snippet and product-level symmetry with the confirmed SecurityPreRules resource. Palo Alto's own live.paloaltonetworks.com forum returned 403 to automated fetches, so I could not read the actual thread content, only search-engine-indexed snippets. Worth a live device call (GET .../Policies/SecurityPostRules?location=device-group&device-group=<dg>) to confirm it's real and not a v9.1-only or otherwise different name in current PAN-OS.",
+      "Whether the REST API accepts a case-sensitive vs case-insensitive `location` query key was not resolved \u2014 the official Panorama Pre Rule PUT example literally shows `LOCATION=device-group` (uppercase) in the curl URL while the same page's request body uses lowercase `@location`. Could be a documentation typo or genuinely case-insensitive parsing; not verified either way.",
+      "No public mirror of the on-device /restapi-doc OpenAPI/Swagger spec exists anywhere searched (pan.dev, GitHub, Postman Network, community collections) for any PAN-OS version \u2014 this reference genuinely requires a live device or Panorama instance; there is no public-internet substitute for it.",
+      "Whether a security rule can have BOTH profile-setting/group and profile-setting/profiles populated simultaneously (mutually exclusive per the GUI's radio-button 'Profile Type: None/Group/Profiles', per docs.paloaltonetworks.com/network-security/security-policy/administration/security-profiles/security-profile-groups) versus what the API actually permits/returns if both happen to be set in raw XML was not tested \u2014 relevant for the collector's parsing logic robustness (should probably check both, since GUI-enforced exclusivity isn't the same as an API-level constraint).",
+      "Whether GTP/SCTP profile-setting children (present in current pango, PAN-OS 10.2+/11.x) are actually reachable via the REST API's Policies/SecurityRules resource on Suncoast's specific 11.1.13/11.2.10-H3 versions, or are Panorama/mobile-network-specific and might not appear for a standard NGFW vsys rule, is unconfirmed.",
+      "All open gaps from the earlier pan_api_research.md research pass (license info XML body, DNS Security feature string, DNS threat log filter value, target= proxying for logs) remain open and are unrelated to/unaffected by this pass \u2014 still need live-device confirmation."
+    ],
+    "recommendedCodeChanges": [
+      {
+        "file": "pan_firewall.py",
+        "change": "In get_security_rules()'s docstring (currently: 'The field name for an attached URL Filtering profile is NOT confirmed by any official example'), update to reflect the new finding: the XML/config-tree field name is confirmed at HIGH confidence (via pan-os-python and pango SDK source code, both actively-maintained PaloAltoNetworks GitHub repos) to be `profile-setting`, with children `group` (member-list of one Security Profile Group name) and `profiles` (nested member-lists keyed by `virus`, `spyware`, `vulnerability`, `url-filtering`, `file-blocking`, `wildfire-analysis`, `data-filtering`, and on newer PAN-OS also `gtp`/`sctp`). The REST JSON shape is inferred at MEDIUM-HIGH confidence by analogy to every other confirmed list field's `{\"key\": {\"member\": [...]}}` pattern, but has not been observed in an official worked REST JSON example \u2014 keep this specific point flagged as needing live-device confirmation rather than claiming it fully closed."
+      },
+      {
+        "file": "pan_firewall.py",
+        "change": "Add a small parsing helper (e.g. `_parse_profile_setting(entry: dict) -> dict`) that reads `entry.get('profile-setting', {})` and returns `{'group': [...member list...], 'profiles': {category: [...member list...] for each populated category}}`, so callers/evidence-normalizers don't each re-implement the now-reasonably-confident field path. Log a warning (similar to the existing get_license_info pattern) if profile-setting is present but neither 'group' nor 'profiles' matches the expected shape, so a live-device surprise is caught rather than silently mis-parsed."
+      },
+      {
+        "file": "pan_firewall.py",
+        "change": "get_security_post_rules()'s docstring currently cites the same 'CONFIRMED: docs.paloaltonetworks.com/.../work-with-policy-rules-on-panorama-rest-api' source as get_security_pre_rules(). That citation is accurate for SecurityPreRules (the page's literal worked example) but overstates confidence for SecurityPostRules \u2014 that exact page's grep'd text contains zero occurrences of 'SecurityPostRules'. Split the confidence: keep SecurityPreRules marked CONFIRMED/high; mark SecurityPostRules as medium-confidence, sourced from a LIVEcommunity forum thread title/snippet plus product-level Pre/Post-Rule symmetry, not a literal official worked example \u2014 and recommend a first live call to verify the resource name/response shape before treating it as load-bearing."
+      },
+      {
+        "file": "pan_api_research.md",
+        "change": "In section 4 ('Security Policy Rules'), replace the 'Open gap: no official example shows the exact field name...' bullet with the fuller finding: XML/config-tree field name `profile-setting` (children `group`, `profiles/{virus,spyware,vulnerability,url-filtering,file-blocking,wildfire-analysis,data-filtering,[gtp,sctp]}`) is now confirmed at high confidence via pan-os-python (github.com/PaloAltoNetworks/pan-os-python, panos/policies.py, class SecurityRule) and pango (github.com/PaloAltoNetworks/pango, policies/rules/security/entry.go \u2014 the same module version terraform-provider-panos's main branch depends on). The REST-JSON-specific byte shape remains an open gap (never shown in an official REST worked example) but is inferred at medium-high confidence via the confirmed `{key: {member: [...]}}` + hyphenated-tag convention used by every other officially-shown list field on a security rule. Also add a new bullet distinguishing SecurityPreRules (official, high-confidence) from SecurityPostRules (community-forum + symmetry, medium-confidence, resource name not found in any official page fetched)."
+      },
+      {
+        "file": "pan_api_research.md",
+        "change": "Add a short new bullet noting PAN-OS REST API PUT is documented as a full-replace operation (official guidance: GET the rule, copy the full body, then PUT the modified whole) \u2014 not currently relevant to this GET-only prototype, but worth flagging so a future write-path addition doesn't accidentally clobber a rule's other fields with a partial PUT body."
+      }
+    ],
+    "keySources": [
+      {
+        "url": "https://docs.paloaltonetworks.com/ngfw/api/pan-os-rest-api-use-cases/create-security-policy-rule-rest-api",
+        "title": "Create a Security Policy Rule (REST API)",
+        "type": "official_docs"
+      },
+      {
+        "url": "https://docs.paloaltonetworks.com/ngfw/api/pan-os-rest-api-use-cases/work-with-policy-rules-on-panorama-rest-api",
+        "title": "Work with Policy Rules on Panorama (REST API)",
+        "type": "official_docs"
+      },
+      {
+        "url": "https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/methods-supported-rest-api",
+        "title": "Resource Methods and Query Parameters (REST API)",
+        "type": "official_docs"
+      },
+      {
+        "url": "https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/access-the-rest-api",
+        "title": "Access the PAN-OS REST API",
+        "type": "official_docs"
+      },
+      {
+        "url": "https://raw.githubusercontent.com/PaloAltoNetworks/pan-os-python/master/panos/policies.py",
+        "title": "pan-os-python: panos/policies.py, class SecurityRule",
+        "type": "official_sdk"
+      },
+      {
+        "url": "https://raw.githubusercontent.com/PaloAltoNetworks/pango/main/policies/rules/security/entry.go",
+        "title": "pango: policies/rules/security/entry.go (Entry, ProfileSetting structs)",
+        "type": "official_sdk"
+      },
+      {
+        "url": "https://raw.githubusercontent.com/PaloAltoNetworks/pango/main/policies/rules/security/location.go",
+        "title": "pango: policies/rules/security/location.go (location/xpath handling)",
+        "type": "official_sdk"
+      },
+      {
+        "url": "https://raw.githubusercontent.com/PaloAltoNetworks/terraform-provider-panos/main/go.mod",
+        "title": "terraform-provider-panos go.mod (confirms pango version dependency)",
+        "type": "official_sdk"
+      },
+      {
+        "url": "https://live.paloaltonetworks.com/t5/automation-api-discussions/panorama-edit-a-security-post-rule-rest-api-logic/td-p/503817",
+        "title": "LIVEcommunity: Panorama Edit a security post-rule REST-API logic",
+        "type": "community_forum"
+      },
+      {
+        "url": "https://pan.dev/panos/docs/",
+        "title": "PAN-OS APIs and SDKs | Develop with Palo Alto Networks",
+        "type": "official_docs"
+      }
+    ]
+  }
+}
