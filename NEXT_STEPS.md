@@ -14,12 +14,23 @@ pickup point for whoever continues.
 - `pan_drata_schemas.py` / `pan_drata_publisher.py` — new normalizer + publisher layer,
   mirroring the sibling Microsoft connector's pattern. Publishes to a single
   `PAN_DRATA_RESOURCE_ID`.
-- `tests/` — offline unittest suite (43 tests) built from real captured examples in
+- `tests/` — offline unittest suite (50 tests) built from real captured examples in
   `pan_api_research.md`, since there's still no live device to test against. Run with
-  `python -m unittest discover -s tests -t .`.
+  `pip install -r requirements-dev.txt && python -m unittest discover -s tests -t .`.
 - `README.md`, `.env.example`, `requirements.txt` — previously missing, now present.
 - `pan_api_research.md` — unchanged since the last research pass; still the source of
   truth for every confirmed-vs-guessed field shape.
+- `schema.json` (added 2026-09-25) — the actual Custom Connection resource schema. This
+  was a real gap until now: `pan_drata_publisher.py` was built to POST to an *existing*
+  `PAN_DRATA_CONNECTION_ID`/`PAN_DRATA_RESOURCE_ID`, but nothing defined the schema you'd
+  submit to Drata to create that connection + resource in the first place, so those env
+  vars had no real values to be filled in with. `schema.json` covers the full field union
+  across all 7 evidence types (one resource holds all of them, distinguished by
+  `evidenceType`), validated against every real normalizer output in `tests/test_schema.py`
+  (`requirements-dev.txt` adds `jsonschema`, test-only). README's "Custom Connection
+  schema" section has the exact steps to submit it in Drata. **Still needs a human to
+  actually do that submission** — this only produces the artifact, it doesn't create the
+  connection or mint the real `PAN_DRATA_CONNECTION_ID`/`PAN_DRATA_RESOURCE_ID` values.
 
 ## Deployment decision (resolved 2026-08-14)
 

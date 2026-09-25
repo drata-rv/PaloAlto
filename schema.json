@@ -1,0 +1,147 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PAN-OS / Panorama Compliance Evidence",
+  "description": "Schema for the single Drata Custom Connection resource this connector publishes to (PAN_DRATA_RESOURCE_ID). One resource holds seven evidence shapes, distinguished by evidenceType; every record includes the CORE and DEVICE-TRACEABILITY fields, plus only the fields applicable to its own evidenceType. Generated from pan_drata_schemas.py -- keep in sync with that module's _build() calls if fields ever change.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Deterministic composite key, e.g. '<deviceId>:license:<feature>' -- re-runs upsert instead of duplicating."
+    },
+    "service": {
+      "type": "string",
+      "enum": ["pan_firewall", "panorama"],
+      "description": "Which surface answered the call: a firewall (pan_firewall) or Panorama itself, for its own device-group definitions (panorama)."
+    },
+    "evidenceType": {
+      "type": "string",
+      "enum": [
+        "FIREWALL_LICENSE",
+        "URL_FILTERING_PROFILE",
+        "DNS_SECURITY_PROFILE",
+        "SECURITY_RULE",
+        "TRAFFIC_LOG_SUMMARY",
+        "URL_FILTERING_LOG_SUMMARY",
+        "DNS_THREAT_LOG_SUMMARY"
+      ]
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable label shown in the Drata UI. Recommended displayNameKey for this Custom Connection resource."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["COMPLIANT", "NONCOMPLIANT", "CONFIGURED", "ENABLED", "DISABLED"]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Run timestamp, ISO 8601. Shared by every record produced in one run."
+    },
+    "deviceHostname": { "type": "string" },
+    "site": {
+      "type": "string",
+      "description": "Free-form site/location label, e.g. 'Jacksonville' | 'Azure-<name>' | 'UNSPECIFIED'."
+    },
+    "managedBy": {
+      "type": "string",
+      "enum": ["DIRECT", "PANORAMA"],
+      "description": "Whether the firewall this record came from is itself Panorama-managed."
+    },
+
+    "description": { "type": "string", "description": "FIREWALL_LICENSE only." },
+    "serial": { "type": "string", "description": "FIREWALL_LICENSE only." },
+    "issuedDate": { "type": "string", "description": "FIREWALL_LICENSE only." },
+    "expiresDate": { "type": "string", "description": "FIREWALL_LICENSE only." },
+    "authcode": { "type": "string", "description": "FIREWALL_LICENSE only." },
+
+    "blockedCategories": {
+      "type": "array", "items": { "type": "string" },
+      "description": "URL_FILTERING_PROFILE only."
+    },
+    "alertCategories": {
+      "type": "array", "items": { "type": "string" },
+      "description": "URL_FILTERING_PROFILE only."
+    },
+    "allowCategories": {
+      "type": "array", "items": { "type": "string" },
+      "description": "URL_FILTERING_PROFILE only."
+    },
+
+    "dnsSecurityCategories": {
+      "type": "array",
+      "description": "DNS_SECURITY_PROFILE only.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "category": { "type": "string" },
+          "action": { "type": "string" },
+          "logLevel": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "enabledCategoryCount": { "type": "integer", "description": "DNS_SECURITY_PROFILE only." },
+
+    "ruleScope": {
+      "type": "string",
+      "enum": ["LOCAL", "PRE_RULE", "POST_RULE"],
+      "description": "SECURITY_RULE only."
+    },
+    "action": { "type": "string", "description": "SECURITY_RULE only." },
+    "applications": {
+      "type": "array", "items": { "type": "string" },
+      "description": "SECURITY_RULE only."
+    },
+    "sourceZones": {
+      "type": "array", "items": { "type": "string" },
+      "description": "SECURITY_RULE only."
+    },
+    "destZones": {
+      "type": "array", "items": { "type": "string" },
+      "description": "SECURITY_RULE only."
+    },
+    "securityProfileGroup": {
+      "type": "array", "items": { "type": "string" },
+      "description": "SECURITY_RULE only -- named Security Profile Group attached to the rule, if any."
+    },
+    "securityProfiles": {
+      "type": "object",
+      "description": "SECURITY_RULE only -- individually-attached profiles keyed by category (virus, spyware, vulnerability, url-filtering, file-blocking, wildfire-analysis, data-filtering, gtp, sctp), each an array of profile names.",
+      "additionalProperties": { "type": "array", "items": { "type": "string" } }
+    },
+    "deviceGroup": { "type": "string", "description": "SECURITY_RULE only, PRE_RULE/POST_RULE scope." },
+
+    "totalLogCount": {
+      "type": "integer",
+      "description": "TRAFFIC_LOG_SUMMARY / URL_FILTERING_LOG_SUMMARY / DNS_THREAT_LOG_SUMMARY only."
+    },
+    "affectedCount": {
+      "type": "integer",
+      "description": "TRAFFIC_LOG_SUMMARY / URL_FILTERING_LOG_SUMMARY / DNS_THREAT_LOG_SUMMARY only -- subset of totalLogCount matching the evidence-relevant condition (denied traffic, blocked/alerted URL, or -- for DNS threat -- every entry, since the query is already filtered)."
+    },
+    "windowStart": {
+      "type": "string",
+      "description": "TRAFFIC_LOG_SUMMARY / URL_FILTERING_LOG_SUMMARY / DNS_THREAT_LOG_SUMMARY only."
+    },
+    "windowEnd": {
+      "type": "string",
+      "description": "TRAFFIC_LOG_SUMMARY / URL_FILTERING_LOG_SUMMARY / DNS_THREAT_LOG_SUMMARY only."
+    },
+    "actionBreakdown": {
+      "type": "object",
+      "description": "TRAFFIC_LOG_SUMMARY only -- count per raw log `action` value.",
+      "additionalProperties": { "type": "integer" }
+    },
+    "categoryBreakdown": {
+      "type": "object",
+      "description": "URL_FILTERING_LOG_SUMMARY / DNS_THREAT_LOG_SUMMARY only -- count per raw log `category` value.",
+      "additionalProperties": { "type": "integer" }
+    }
+  },
+  "required": [
+    "id", "service", "evidenceType", "name", "status", "timestamp",
+    "deviceHostname", "site", "managedBy"
+  ],
+  "additionalProperties": false
+}

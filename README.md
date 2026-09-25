@@ -18,6 +18,31 @@ Field reference: [`pan_drata_schemas.py`](pan_drata_schemas.py). API reference: 
 
 ---
 
+## Custom Connection schema
+
+[`schema.json`](schema.json) is the JSON Schema for this connector's Custom Connection
+resource, submitted once to Drata when the connection is created (before `PAN_DRATA_CONNECTION_ID`/
+`PAN_DRATA_RESOURCE_ID` exist as real values). All seven evidence types in the table above
+publish into one resource, distinguished by `evidenceType` -- so this is one schema covering
+the full field union, not seven separate schemas.
+
+**To create the Custom Connection in Drata:**
+1. Connections → Create connection. Name it, pick a workspace.
+2. Define Your Schema → **JSON Schema** → paste the contents of `schema.json` verbatim.
+3. Set the Display Name → choose **`name`** as the `displayNameKey`.
+4. Configure API Access → create a new API key (recommended) or reuse an existing one scoped
+   to Custom Connections Data (Create, Create and Update, Delete).
+5. Submit one real record to confirm the schema validates, then note the connection ID and
+   resource ID from the connection's URL/API response — those are `PAN_DRATA_CONNECTION_ID`
+   and `PAN_DRATA_RESOURCE_ID` in this repo's `.env`.
+
+`schema.json` is validated against every real normalizer output (all 7 evidence types, every
+rule scope, the zero-log-entries edge case) in `tests/test_schema.py` — if a normalizer ever
+emits a field this schema doesn't declare, that test fails before it becomes a 400 from
+Drata's API on a real run.
+
+---
+
 ## Service account — API permissions to grant
 
 Dedicated, least-privilege, non-shared account. Two tabs on the Admin Role Profile.
@@ -74,9 +99,10 @@ PAN_DRATA_RESOURCE_ID=
 
 Connection/resource vars are `PAN_`-prefixed so this can share an Azure Function App with another Drata custom connection without colliding on App Settings names — those are shared app-wide across every function in an app. `DRATA_API_KEY` stays unprefixed (assumed one account-level key valid for any Custom Connection).
 
-3. Run the test suite.
+3. Run the test suite (needs `jsonschema`, test-only — not a runtime dependency of the connector itself).
 
 ```bash
+pip install -r requirements-dev.txt
 python -m unittest discover -s tests -t .
 ```
 
