@@ -1,10 +1,10 @@
 """
-pan_firewall.py
+pan_connector/firewall.py
 Evidence-retrieval methods for a single PAN-OS firewall or Panorama host.
 
 Maps each piece of evidence Suncoast currently gathers manually (per the
 2026-05-12 SME scoping call) to the confirmed API surface for it — see
-pan_api_research.md for full citations and the "Items That Must Be
+docs/api_research.md for full citations and the "Items That Must Be
 Confirmed" list of gaps this file's docstrings flag inline.
 
     License status (URL Filtering, DNS Security)          -> XML API, type=op
@@ -16,14 +16,14 @@ Confirmed" list of gaps this file's docstrings flag inline.
                                                                on PAN-OS 11.1/11.2 — that arrives
                                                                only in 12.1+)
 
-Drata SA Team
+Drata Solutions Architect team
 """
 
 import logging
 from typing import Optional
 from xml.etree import ElementTree
 
-from pan_base import PanBaseConnector
+from .base import PanBaseConnector
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ class PanFirewallConnector(PanBaseConnector):
         is confirmed as the URL Filtering feature string.
 
         CONFIRM AGAINST A LIVE SUNCOAST FIREWALL before trusting this in
-        production — see pan_api_research.md.
+        production — see docs/api_research.md.
         """
         cmd = "<request><license><info/></license></request>"
         root = self._xml_op(cmd, target=target)
@@ -82,7 +82,7 @@ class PanFirewallConnector(PanBaseConnector):
                 "issued":      entry.findtext("issued"),
                 "expires":     entry.findtext("expires"),
                 # Confirmed via pan-os-python + a real captured VM-50 response
-                # (pan_api_research.md section 2): "expired" is the literal
+                # (docs/api_research.md section 2): "expired" is the literal
                 # string "yes"/"no", not a native bool -- convert it rather
                 # than passing the raw string through.
                 "expired":     entry.findtext("expired") == "yes",
@@ -205,8 +205,8 @@ class PanFirewallConnector(PanBaseConnector):
         (docs.paloaltonetworks.com/pan-os/10-1/.../dns-security-data-collection-and-logging).
 
         CONFIRMED filter field: `category-of-threatid` (not `subtype` — that
-        field has no `dns` value at all, see pan_api_research.md section 5).
-        The production collection path (pan_main.py's `_DNS_THREAT_QUERY`)
+        field has no `dns` value at all, see docs/api_research.md section 5).
+        The production collection path (pan_connector/runner.py's `_DNS_THREAT_QUERY`)
         already passes an OR'd query over the documented DNS threat
         categories (dns-c2, adns-hijacking, dns-ddns, dns-parked,
         dns-malware, dns-grayware) by default — this method's own default of
@@ -218,15 +218,15 @@ class PanFirewallConnector(PanBaseConnector):
         / newly-registered-domain category names are not documented in what
         was found). On the first live run, compare distinct `thr_category`
         values in an unfiltered Monitor > Logs > Threat view against the
-        list in pan_main.py.
+        list in pan_connector/runner.py.
         """
         if query is None:
             logger.warning(
                 "get_dns_threat_logs called with no query filter — this "
                 "returns ALL threat log entries, not just DNS Security ones. "
                 "The confirmed filter field is category-of-threatid (see "
-                "pan_api_research.md section 5); the production call path "
-                "already supplies one (pan_main.py's _DNS_THREAT_QUERY) -- "
+                "docs/api_research.md section 5); the production call path "
+                "already supplies one (pan_connector/runner.py's _DNS_THREAT_QUERY) -- "
                 "this warning firing means you're calling this method "
                 "directly without it."
             )

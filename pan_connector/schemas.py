@@ -1,12 +1,12 @@
 """
-pan_drata_schemas.py
+pan_connector/schemas.py
 Normalizers that map raw PAN-OS/Panorama API records to the Drata evidence
 schema, following the same connector -> normalizer -> publisher pattern
 Drata's SA team uses for its other custom connections.
 
 Every normalizer receives a raw record, a device context object (built by
-pan_main.py's DeviceContext -- duck-typed here, not imported, to avoid a
-pan_main.py <-> pan_drata_schemas.py import cycle) exposing:
+pan_connector/runner.py's DeviceContext -- duck-typed here, not imported, to avoid a
+pan_connector/runner.py <-> pan_connector/schemas.py import cycle) exposing:
     .id            string  -- stable device/device-group identifier
     .hostname      string  -- management hostname
     .site          string  -- free-form site/location label, e.g. "Site-A" | "Azure-<name>" | "UNSPECIFIED"
@@ -16,7 +16,7 @@ pan_main.py <-> pan_drata_schemas.py import cycle) exposing:
 and a run_timestamp (ISO 8601 string, computed once per run so every record
 in one run shares the same timestamp -- keeps normalizers pure/deterministic,
 which matters given there is no live device to validate against; see
-pan_api_research.md).
+docs/api_research.md).
 
 CORE FIELDS (guaranteed on every record):
     "id"            string  -- deterministic composite (f"{device.id}:{evidenceType}:{name}")
@@ -51,7 +51,7 @@ STATUS VOCABULARY (subset of the Microsoft schema's enum actually used here):
 Fields with a None value are omitted so Drata receives a clean sparse record
 rather than one full of null values.
 
-Drata SA Team
+Drata Solutions Architect team
 """
 
 from __future__ import annotations
@@ -120,8 +120,8 @@ def normalize_license(entry: dict, device: Any, run_timestamp: str) -> dict:
     """
     Source: PanFirewallConnector.get_license_info() -> XML type=op, request license info.
     status is COMPLIANT/NONCOMPLIANT off the now-fixed `expired` bool
-    (pan_api_research.md section 2 confirms `expired` as literal "yes"/"no",
-    converted to bool in pan_firewall.py).
+    (docs/api_research.md section 2 confirms `expired` as literal "yes"/"no",
+    converted to bool in pan_connector/firewall.py).
     """
     feature = entry.get("feature")
     return _build(
@@ -169,7 +169,7 @@ def normalize_dns_security_profile(entry: dict, device: Any, run_timestamp: str)
     Source: PanFirewallConnector.get_dns_security_profiles() -> REST
     Objects/AntiSpywareSecurityProfiles. DNS Security lives inside the
     Anti-Spyware profile's botnet-domains/dns-security-categories block
-    (pan_api_research.md section 3, confirmed via Iron Skillet source).
+    (docs/api_research.md section 3, confirmed via Iron Skillet source).
     Field name is `log-level` -- NOT `log-severity` (a different, unrelated
     field on the URL Filtering profile's credential-enforcement block --
     confirmed naming trap, don't conflate the two).
@@ -213,7 +213,7 @@ def normalize_security_rule(entry: dict, device: Any, run_timestamp: str, rule_s
     Profile attachment: confirmed at the XML/config-tree level as
     `profile-setting.group` (named Security Profile Group) or
     `profile-setting.profiles.<category>` (individually-attached profiles)
-    -- pan_api_research.md section 4. The REST JSON byte-shape of this field
+    -- docs/api_research.md section 4. The REST JSON byte-shape of this field
     is an open gap in that research; this normalizer's handling of the
     `{"group": {"member": [...]}}` / `{"profiles": {"<type>": {"member": [...]}}}`
     shape is a best-effort construction pending live-device confirmation.
@@ -247,7 +247,7 @@ def normalize_security_rule(entry: dict, device: Any, run_timestamp: str, rule_s
 # ── Log Summaries (aggregated -- one record per device per log type, refreshed every run) ─────
 #
 # Each summary covers the N most recent matching log entries returned by the
-# firewall (N = sample_limit, see pan_main._LOG_SAMPLE_SIZE), NOT a fixed time
+# firewall (N = sample_limit, see runner._LOG_SAMPLE_SIZE), NOT a fixed time
 # window. windowStart/windowEnd are the earliest/latest `receive_time` actually
 # present in that sample (device-local time, as PAN returns it), so they
 # describe the data honestly; logLimitReached says whether the sample was capped

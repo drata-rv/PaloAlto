@@ -1,5 +1,5 @@
 """
-pan_drata_publisher.py
+pan_connector/publisher.py
 Pushes normalised PAN-OS/Panorama compliance records to a Drata Custom
 Connection. This module is schema-agnostic -- it has no PAN-specific
 logic, so it's the same shape used by Drata's other custom connections.
@@ -29,9 +29,9 @@ Required environment variables:
 The connection/resource vars are PAN_-prefixed (DRATA_API_KEY is not) so
 this can be deployed alongside another Drata custom connection in a shared
 Azure Function App without colliding on App Settings names -- see
-pan_main.py's module docstring.
+pan_connector/runner.py's module docstring.
 
-Drata SA Team
+Drata Solutions Architect team
 """
 
 import logging

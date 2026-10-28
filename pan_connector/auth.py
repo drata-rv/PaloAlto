@@ -1,5 +1,5 @@
 """
-pan_auth.py
+pan_connector/auth.py
 API key acquisition for the PAN-OS / Panorama XML and REST APIs.
 
 Confirmed from Palo Alto Networks documentation
@@ -27,13 +27,13 @@ status="success"/"error" attribute and a <result> child, per the retrieve-logs
 job-id example) plus the extremely well-established PAN-OS convention for
 where the key appears, but this exact path has not been verified against an
 official response example. Confirm against a live device on first
-use -- see pan_api_research.md, "Items That Must Be Confirmed."
+use -- see docs/api_research.md, "Items That Must Be Confirmed."
 
 One PanAuthClient instance is scoped to ONE device (a single firewall's
 management hostname, or Panorama's own hostname) since PAN-OS API keys are
 generated per-device against that device's own admin account.
 
-Drata SA Team
+Drata Solutions Architect team
 """
 
 from __future__ import annotations
@@ -99,7 +99,7 @@ class PanAuthClient:
             logger.error(
                 "keygen for %s returned status=success but no <result><key> "
                 "was found at the expected path -- this path is UNVERIFIED "
-                "against official docs (see pan_auth.py module docstring). "
+                "against official docs (see pan_connector/auth.py module docstring). "
                 "Raw response: %s",
                 self.host, resp.text,
             )

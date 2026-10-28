@@ -14,7 +14,7 @@ def load_fixture(name: str) -> str:
 
 
 def fake_response(status_code: int, text: str = "", json_data=None, headers=None) -> Mock:
-    """Mimics the subset of requests.Response behavior pan_base.py relies on."""
+    """Mimics the subset of requests.Response behavior pan_connector/base.py relies on."""
     resp = Mock(spec=requests.Response)
     resp.status_code = status_code
     resp.text = text

@@ -3,15 +3,15 @@
 If you don't have a live PAN-OS device to test against yet, these fixtures
 are the only validation this connector gets before it touches a real
 firewall. Each file below is marked either **captured** (transcribed
-verbatim from a real device response quoted in `pan_api_research.md`) or
+verbatim from a real device response quoted in `docs/api_research.md`) or
 **constructed** (built from confirmed field names/shapes in that doc, but the
 exact byte-for-byte encoding was not itself found in an official example —
-same "open gap" `pan_api_research.md` already flags for these resources).
+same "open gap" `docs/api_research.md` already flags for these resources).
 
 | File | Status | Source |
 |---|---|---|
-| `license_response_vm50.xml` | captured (first entry) + constructed (second entry) | `pan_api_research.md` section 2 — real VM-50 response via `pan-python`'s `doc/panlicapi.rst`. Second entry added to exercise the `expired=yes` / `authcode`-present branches the real example doesn't cover. |
-| `log_job_submit_response.xml` | captured | `pan_api_research.md` section 5 |
+| `license_response_vm50.xml` | captured (first entry) + constructed (second entry) | `docs/api_research.md` section 2 — real VM-50 response via `pan-python`'s `doc/panlicapi.rst`. Second entry added to exercise the `expired=yes` / `authcode`-present branches the real example doesn't cover. |
+| `log_job_submit_response.xml` | captured | `docs/api_research.md` section 5 |
 | `log_job_poll_inprogress.xml` | constructed | The doc confirms the poll-completion xpath as `./result/job/status` (i.e. `<status>` nested inside `<job>`, not a sibling) but doesn't quote a full poll-response example — `<job><id>/<status>` nesting and the `ACT` status code follow standard PAN-OS job-status convention (same shape used by `show jobs id`/commit-status polling). |
 | `log_job_poll_finished_with_results.xml` | captured (the `./result/log/logs/entry` shape + `type`/`subtype`) + constructed (job/status nesting + filler fields) | section 5 — the doc's quoted `<log>` example is truncated (`...`); the `<job><status>` block isn't in the quoted excerpt at all (see above), so it's built to match the confirmed xpath. |
 | `log_job_poll_finished_zero_results.xml` | constructed — **the critical regression fixture** | `status=FIN` nested under `<job>` with no `<log>` node at all — exercises the exact bug described in section 5 (a zero-result job finishing without ever populating `<log>`). |

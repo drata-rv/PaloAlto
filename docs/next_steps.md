@@ -6,27 +6,30 @@ pickup point for whoever continues.
 
 ## What exists now
 
-- `pan_main.py` (renamed from `main.py`), `pan_auth.py`, `pan_base.py`, `pan_firewall.py`
+- Layout restructured 2026-10-28: flat `pan_*.py` modules moved into the `pan_connector/` package,
+  `schema.json`/`sample_data.json` into `schema/`, notes into `docs/`. `pan_main.py` stays at the root as
+  the entry point so the Azure wrapper's `import pan_main` is unchanged.
+- `pan_main.py` (entry point) and `pan_connector/` (`auth.py`, `base.py`, `firewall.py`, `runner.py`)
   — collector, with all research-confirmed bug fixes applied (log-poll `status==FIN`
   check, license `authcode`/`expired` typing, TLS `bool|str`, one-shot re-auth on stale
   key, `get_dns_threat_logs` wired into collection, config validation, per-device fault
   isolation, incremental output writes).
-- `pan_drata_schemas.py` / `pan_drata_publisher.py` — new normalizer + publisher layer,
+- `pan_connector/schemas.py` / `pan_connector/publisher.py` — new normalizer + publisher layer,
   mirroring the sibling Microsoft connector's pattern. Publishes to a single
   `PAN_DRATA_RESOURCE_ID`.
-- `tests/` — offline unittest suite (43 tests) built from real captured examples in
-  `pan_api_research.md`, since there's still no live device to test against. Run with
+- `tests/` — offline unittest suite (73 tests) built from real captured examples in
+  `api_research.md`, since there's still no live device to test against. Run with
   `python -m unittest discover -s tests -t .`.
 - `README.md`, `.env.example`, `requirements.txt` — previously missing, now present.
-- `pan_api_research.md` — unchanged since the last research pass; still the source of
+- `api_research.md` — unchanged since the last research pass; still the source of
   truth for every confirmed-vs-guessed field shape.
-- `schema.json` (added 2026-09-25) — the actual Custom Connection resource schema. This
-  was a real gap until now: `pan_drata_publisher.py` was built to POST to an *existing*
+- `schema/schema.json` (added 2026-09-25) — the actual Custom Connection resource schema. This
+  was a real gap until now: `pan_connector/publisher.py` was built to POST to an *existing*
   `PAN_DRATA_CONNECTION_ID`/`PAN_DRATA_RESOURCE_ID`, but nothing defined the schema you'd
   submit to Drata to create that connection + resource in the first place, so those env
   vars had no real values to be filled in with. Covers the full field union across all 7
   evidence types (one resource holds all of them, distinguished by `evidenceType`), taken
-  directly from `pan_drata_schemas.py`'s `_build()` calls and checked by hand against real
+  directly from `pan_connector/schemas.py`'s `_build()` calls and checked by hand against real
   normalizer output for every evidence type/rule scope before handing over. README's
   "Custom Connection schema" section has the exact steps to submit it in Drata. **Still
   needs a human to actually do that submission** — this only produces the artifact, it
@@ -36,7 +39,7 @@ pickup point for whoever continues.
 ## Pre-customer-meeting review (2026-10-28)
 
 Fixed (each checked against Palo Alto's published field tables / REST docs; 62 tests pass,
-plus a throwaway end-to-end dry run through collect -> normalize -> `schema.json`):
+plus a throwaway end-to-end dry run through collect -> normalize -> `schema/schema.json`):
 - **Coverage:** profiles and rules were only requested from `location=vsys`. Objects/rules
   pushed from Panorama live under `panorama-pushed`, and Shared objects/rules under `shared`,
   so Panorama-managed firewalls (8 of ~10 Azure) and Shared-defined policy were being missed.
@@ -104,7 +107,7 @@ to this repo:**
   Microsoft repo's `main.py` is a generic, unprefixed name — two files named `main.py`
   can't coexist in the same flat deployment package.
 - `DRATA_CONNECTION_ID` / `DRATA_RESOURCE_ID` → renamed to **`PAN_DRATA_CONNECTION_ID`**
-  / **`PAN_DRATA_RESOURCE_ID`** everywhere (`pan_main.py`, `pan_drata_publisher.py`,
+  / **`PAN_DRATA_RESOURCE_ID`** everywhere (`pan_main.py`, `pan_connector/publisher.py`,
   `.env.example`, `README.md`). Azure Function App settings are shared app-wide across
   every function in the app; the Microsoft connector already owns the unprefixed names
   for its own (different) Custom Connection, so identical names would silently collide
@@ -128,7 +131,7 @@ sibling Microsoft repo — resurface these; none are blocked on more code work)
 1. **Automation hosting** — resolved above (same Function App as Microsoft). Revisit
    execution-time limits regardless: a
    full run across the fleet involves multiple async log-polling loops that can each
-   take up to 120s (`max_wait_seconds` in `pan_base.py`), and a Function's timeout
+   take up to 120s (`max_wait_seconds` in `pan_connector/base.py`), and a Function's timeout
    could truncate a run mid-fleet. The incremental-write design already in `_collect`
    softens this (partial evidence isn't lost) but doesn't eliminate the risk.
 2. **Full-fleet vs. representative-sample evidence policy** — unresolved; auditor
@@ -137,7 +140,7 @@ sibling Microsoft repo — resurface these; none are blocked on more code work)
    run. Whichever way this resolves is a small `--devices-filter`/`site`-tag addition,
    not a redesign.
 3. **Dedicated least-privilege service account** — ticket status unknown as of last
-   research pass. Recommended XML/REST scoping is in `pan_api_research.md` section 7.
+   research pass. Recommended XML/REST scoping is in `api_research.md` section 7.
    This is a hard blocker for pointing the connector at any real device, not just a
    nice-to-have.
 4. **Change control filing** — status unknown.
@@ -154,11 +157,11 @@ sibling Microsoft repo — resurface these; none are blocked on more code work)
    someone needs to hand over Suncoast's actual internal CA bundle path. Ships with a
    safe default (`true`) until then.
 
-## Remaining open research gaps (unchanged from `pan_api_research.md`'s own checklist
+## Remaining open research gaps (unchanged from `api_research.md`'s own checklist
 — still need a live device or Suncoast's direct answer, don't re-research these)
 
 - Exact REST JSON byte-shape of `profile-setting` and self-closing XML "choice"
-  elements (e.g. `<action><sinkhole/></action>`) — `pan_drata_schemas.py`'s handling
+  elements (e.g. `<action><sinkhole/></action>`) — `pan_connector/schemas.py`'s handling
   of these is a best-effort construction from confirmed XML/config-tree shapes.
 - Whether `Policies/SecurityPostRules` is the correct current resource name — only
   community-forum-confirmed.

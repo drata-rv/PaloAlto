@@ -21,7 +21,7 @@
 
   "panorama_managed_firewalls": [
     {
-      "_comment": "Serial is required (used for the Panorama target= proxy for license info). host is optional — omit it if this firewall is not directly network-reachable, but profiles/rules/logs will then be skipped for it (see main.py docstring).",
+      "_comment": "Serial is required (used for the Panorama target= proxy for license info). host is optional — omit it if this firewall is not directly network-reachable, but profiles/rules/logs will then be skipped for it (see pan_connector/runner.py docstring).",
       "name": "example-panorama-managed-fw",
       "serial": "0000000000",
       "host": "10.0.1.1",

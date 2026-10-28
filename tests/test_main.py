@@ -8,7 +8,7 @@ import requests
 
 from tests._helpers import load_fixture
 
-import pan_main as m
+from pan_connector import runner as m
 
 
 def _load(fixture_name):

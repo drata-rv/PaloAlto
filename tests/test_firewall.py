@@ -4,7 +4,7 @@ from xml.etree import ElementTree
 
 from tests._helpers import load_fixture
 
-from pan_firewall import PanFirewallConnector
+from pan_connector.firewall import PanFirewallConnector
 
 
 def _stub_auth():
@@ -71,7 +71,7 @@ class TestGetDnsThreatLogs(unittest.TestCase):
         conn = PanFirewallConnector(host="fw.example.internal", auth=_stub_auth())
         with patch.object(conn, "_xml_log_retrieve") as mock_retrieve, \
              patch.object(conn, "_parse_log_entries", return_value=[]), \
-             self.assertLogs("pan_firewall", level="WARNING") as cm:
+             self.assertLogs("pan_connector.firewall", level="WARNING") as cm:
             mock_retrieve.return_value = ElementTree.fromstring('<response status="success"/>')
             conn.get_dns_threat_logs()
         self.assertTrue(any("ALL threat log entries" in msg for msg in cm.output))

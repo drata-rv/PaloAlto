@@ -1,5 +1,5 @@
 """
-pan_base.py
+pan_connector/base.py
 Base connector for the PAN-OS / Panorama REST and XML API surfaces.
 
 Confirmed from Palo Alto Networks documentation:
@@ -14,12 +14,12 @@ REST API version segment is confirmed as "v11.0" even on the page documenting
 it as the PAN-OS 11.1 resource set -- Palo Alto's REST version-in-URL number
 does not track the PAN-OS release number 1:1. No PAN-OS 11.2-specific REST
 version segment was found documented; v11.0 is used for both target versions
-per pan_api_research.md.
+per docs/api_research.md.
 
 Retry logic: a bounded loop (not recursion), 429 respects Retry-After, 5xx
 uses exponential backoff, other 4xx errors are not retried.
 
-Drata SA Team
+Drata Solutions Architect team
 """
 
 import logging
@@ -29,18 +29,18 @@ from xml.etree import ElementTree
 
 import requests
 
-from pan_auth import PanAuthClient
+from .auth import PanAuthClient
 
 logger = logging.getLogger(__name__)
 
-REST_API_VERSION = "v11.0"  # confirmed segment; see module docstring and pan_api_research.md section 3
+REST_API_VERSION = "v11.0"  # confirmed segment; see module docstring and docs/api_research.md section 3
 
 _MAX_RETRIES = 5
 _BACKOFF_BASE = 2  # seconds; doubles each retry for 5xx
 
 # PAN-OS's XML API returns HTTP 200 with a status="error" envelope even for
 # a bad/expired key (confirmed convention; the exact message text for this
-# specific case is NOT confirmed by any official example in pan_api_research.md
+# specific case is NOT confirmed by any official example in docs/api_research.md
 # section 1 — this is a best-effort keyword heuristic, not a documented contract).
 _AUTH_ERROR_KEYWORDS = ("invalid credential", "invalid key", "expired", "session timed out")
 
@@ -234,7 +234,7 @@ class PanBaseConnector:
         not <log> presence. A job matching zero log entries can legitimately
         finish (status=FIN) without ever populating <log>; relying on
         <log>-presence alone would poll forever on a valid empty result set.
-        See pan_api_research.md section 5.
+        See docs/api_research.md section 5.
 
         Falls back to the <log>-presence heuristic only if <status> is
         absent from the response (defensive — official docs only describe

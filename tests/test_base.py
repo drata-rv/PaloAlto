@@ -4,7 +4,7 @@ from xml.etree import ElementTree
 
 from tests._helpers import fake_response, load_fixture
 
-from pan_base import PanBaseConnector, PanXmlApiError
+from pan_connector.base import PanBaseConnector, PanXmlApiError
 
 
 def _stub_auth(keys=("KEY1",)):
@@ -69,7 +69,7 @@ class TestRestGetRetry(unittest.TestCase):
     def setUp(self):
         self.conn = PanBaseConnector(host="fw.example.internal", auth=_stub_auth(("KEY1", "KEY2")))
 
-    @patch("pan_base.time.sleep", return_value=None)
+    @patch("pan_connector.base.time.sleep", return_value=None)
     @patch("requests.Session.get")
     def test_429_retries_and_succeeds(self, mock_get, mock_sleep):
         mock_get.side_effect = [
@@ -80,7 +80,7 @@ class TestRestGetRetry(unittest.TestCase):
         self.assertEqual(result, {"ok": True})
         mock_sleep.assert_called_once_with(1)
 
-    @patch("pan_base.time.sleep", return_value=None)
+    @patch("pan_connector.base.time.sleep", return_value=None)
     @patch("requests.Session.get")
     def test_5xx_backs_off_and_succeeds(self, mock_get, mock_sleep):
         mock_get.side_effect = [

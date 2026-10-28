@@ -14,13 +14,37 @@ Collects compliance evidence from Palo Alto firewalls and Panorama, normalizes i
 | `security_rule` / `security_pre_rule` / `security_post_rule` | Security policy rules, local + Panorama pre/post | REST, Policies |
 | `traffic_log_summary` / `url_filtering_log_summary` / `dns_threat_log_summary` | Aggregated log activity, one summary record per device per log type (refreshed each run; covers the 1,000 most recent matching entries, not a fixed time window) | XML, `type=log` |
 
-Field reference: [`pan_drata_schemas.py`](pan_drata_schemas.py). API reference: [`pan_api_research.md`](pan_api_research.md).
+Field reference: [`pan_connector/schemas.py`](pan_connector/schemas.py). API reference: [`docs/api_research.md`](docs/api_research.md).
+
+---
+
+## Repository layout
+
+```
+pan_main.py            entry point (CLI and the Azure Function wrapper import this)
+pan_connector/         the connector
+  auth.py                API key generation
+  base.py                XML / REST / async log-job HTTP
+  firewall.py            license, profile, rule and log calls
+  schemas.py             normalizers: PAN-OS responses -> Drata records
+  publisher.py           batched upsert to the Custom Connection
+  runner.py              collect -> normalize -> publish, CLI
+schema/
+  schema.json            Custom Connection resource schema
+  sample_data.json       11 example records that validate against it
+docs/
+  api_research.md        confirmed vs. unconfirmed PAN-OS API behavior, with sources
+  next_steps.md          handoff notes and open items
+tests/                   offline unit tests and fixtures
+devices.example.json     device inventory template
+.env.example             environment variable template
+```
 
 ---
 
 ## Custom Connection schema
 
-[`schema.json`](schema.json) is the JSON Schema for this connector's Custom Connection
+[`schema/schema.json`](schema/schema.json) is the JSON Schema for this connector's Custom Connection
 resource, submitted once to Drata when the connection is created (before `PAN_DRATA_CONNECTION_ID`/
 `PAN_DRATA_RESOURCE_ID` exist as real values). All seven evidence types in the table above
 publish into one resource, distinguished by `evidenceType` -- so this is one schema covering
@@ -28,7 +52,7 @@ the full field union, not seven separate schemas.
 
 **To create the Custom Connection in Drata:**
 1. Connections → Create connection. Name it, pick a workspace.
-2. Define Your Schema → **JSON Schema** → paste the contents of `schema.json` verbatim.
+2. Define Your Schema → **JSON Schema** → paste the contents of `schema/schema.json` verbatim.
 3. Set the Display Name → choose **`name`** as the `displayNameKey`.
 4. Configure API Access → create a new API key (recommended) or reuse an existing one scoped
    to Custom Connections Data (Create, Create and Update, Delete).
@@ -141,7 +165,7 @@ Or a systemd `.service` + `.timer` unit, `ExecStart=` pointing at the same comma
 ### Option 1 — Azure Automation Runbook
 
 1. Create an Automation Account.
-2. Import as a **Python 3 runbook** — upload `pan_main.py` and the other `.py` files as a package, or zip the repo and import as a module.
+2. Import as a **Python 3 runbook** — upload `pan_main.py` and the `pan_connector/` folder as a package, or zip the repo and import as a module.
 3. Store `PAN_USERNAME` / `PAN_PASSWORD` / `DRATA_API_KEY` / `PAN_DRATA_CONNECTION_ID` / `PAN_DRATA_RESOURCE_ID` as Automation Account variables or Key Vault references.
 4. Store `devices.json` as an Automation Account asset, or pull it from Key Vault / Blob Storage at runtime.
 5. Add a schedule (Automation Account → Schedules), link it to the runbook.
@@ -165,6 +189,8 @@ To run this as a second function inside a Function App that already hosts a diff
 4. Add this repo's env vars (Setup step 2) to the Function App's Application Settings alongside the existing connector's — confirm none of the unprefixed ones actually collide first.
 5. Re-upload the merged package, trigger the new function manually once, check its invocation log before trusting the schedule.
 
+The deployable files are `pan_main.py` and the `pan_connector/` folder (plus `devices.json`). An overlay upload does not remove files from earlier versions, so after moving to this layout the old flat `pan_auth.py`, `pan_base.py`, `pan_firewall.py`, `pan_drata_schemas.py` and `pan_drata_publisher.py` can be deleted from `wwwroot`. Nothing imports them.
+
 ---
 
-Drata SA Team
+Drata Solutions Architect team

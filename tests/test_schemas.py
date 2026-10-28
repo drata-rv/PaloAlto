@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from tests._helpers import load_fixture
 
-import pan_drata_schemas as schemas
+from pan_connector import schemas
 
 RUN_TS = "2026-08-12T00:00:00+00:00"
 
