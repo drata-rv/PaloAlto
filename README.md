@@ -12,7 +12,7 @@ Collects compliance evidence from Palo Alto firewalls and Panorama, normalizes i
 | `url_filtering_profile` | URL Filtering profiles | REST, Objects |
 | `dns_security_profile` | DNS Security (lives inside Anti-Spyware profile) | REST, Objects |
 | `security_rule` / `security_pre_rule` / `security_post_rule` | Security policy rules, local + Panorama pre/post | REST, Policies |
-| `traffic_log_summary` / `url_filtering_log_summary` / `dns_threat_log_summary` | Aggregated log activity, one summary record per device per run | XML, `type=log` |
+| `traffic_log_summary` / `url_filtering_log_summary` / `dns_threat_log_summary` | Aggregated log activity, one summary record per device per log type (refreshed each run; covers the 1,000 most recent matching entries, not a fixed time window) | XML, `type=log` |
 
 Field reference: [`pan_drata_schemas.py`](pan_drata_schemas.py). API reference: [`pan_api_research.md`](pan_api_research.md).
 
@@ -35,11 +35,6 @@ the full field union, not seven separate schemas.
 5. Submit one real record to confirm the schema validates, then note the connection ID and
    resource ID from the connection's URL/API response — those are `PAN_DRATA_CONNECTION_ID`
    and `PAN_DRATA_RESOURCE_ID` in this repo's `.env`.
-
-`schema.json` is validated against every real normalizer output (all 7 evidence types, every
-rule scope, the zero-log-entries edge case) in `tests/test_schema.py` — if a normalizer ever
-emits a field this schema doesn't declare, that test fails before it becomes a 400 from
-Drata's API on a real run.
 
 ---
 
@@ -99,10 +94,9 @@ PAN_DRATA_RESOURCE_ID=
 
 Connection/resource vars are `PAN_`-prefixed so this can share an Azure Function App with another Drata custom connection without colliding on App Settings names — those are shared app-wide across every function in an app. `DRATA_API_KEY` stays unprefixed (assumed one account-level key valid for any Custom Connection).
 
-3. Run the test suite (needs `jsonschema`, test-only — not a runtime dependency of the connector itself).
+3. Run the test suite.
 
 ```bash
-pip install -r requirements-dev.txt
 python -m unittest discover -s tests -t .
 ```
 
@@ -167,7 +161,7 @@ To run this as a second function inside a Function App that already hosts a diff
 
 1. Confirm no naming collisions before merging deployment packages: entry point here is `pan_main.py` (not the generic `main.py` some connectors use), and the Drata connection/resource env vars are `PAN_`-prefixed (see Setup step 2) — both deliberately namespaced so two connectors' files/settings can coexist in one flat deployment package and one App Settings blade.
 2. Pull the Function App's actual deployment wrapper (Azure Portal → Function App → **Download app content**) to see how the existing function is declared (`function_app.py` v2 model vs. per-function `function.json` v1 folder).
-3. Add a second timer-triggered function inside that same wrapper, calling `pan_main.py`'s `main()`.
+3. Add a second timer-triggered function inside that same wrapper, calling `pan_main.py`'s `main()`. `main()` raises `CollectionError` when a run collects nothing or any device fails (after publishing what did collect) — the wrapper must re-raise it (not catch and return), or Azure shows the invocation as Succeeded. `devices.json` must hold real devices; `devices.example.json` is a template only.
 4. Add this repo's env vars (Setup step 2) to the Function App's Application Settings alongside the existing connector's — confirm none of the unprefixed ones actually collide first.
 5. Re-upload the merged package, trigger the new function manually once, check its invocation log before trusting the schedule.
 

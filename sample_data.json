@@ -1,0 +1,254 @@
+{
+  "data": [
+    {
+      "id": "fw-1:license:PA-VM",
+      "service": "pan_firewall",
+      "evidenceType": "FIREWALL_LICENSE",
+      "name": "PA-VM",
+      "status": "COMPLIANT",
+      "timestamp": "2026-10-28T06:00:00+00:00",
+      "description": "Standard VM-50",
+      "serial": "015351000001360",
+      "issuedDate": "March 24, 2017",
+      "expiresDate": "Never",
+      "deviceHostname": "fw-1.suncoast.internal",
+      "site": "Jacksonville",
+      "managedBy": "DIRECT"
+    },
+    {
+      "id": "fw-1:license:PAN-DB URL Filtering",
+      "service": "pan_firewall",
+      "evidenceType": "FIREWALL_LICENSE",
+      "name": "PAN-DB URL Filtering",
+      "status": "NONCOMPLIANT",
+      "timestamp": "2026-10-28T06:00:00+00:00",
+      "description": "Palo Alto Networks URL Filtering License",
+      "serial": "015351000001360",
+      "issuedDate": "March 24, 2017",
+      "expiresDate": "March 24, 2025",
+      "authcode": "I1234567",
+      "deviceHostname": "fw-1.suncoast.internal",
+      "site": "Jacksonville",
+      "managedBy": "DIRECT"
+    },
+    {
+      "id": "fw-1:url_filtering_profile:panorama-pushed:default-url-filtering",
+      "service": "pan_firewall",
+      "evidenceType": "URL_FILTERING_PROFILE",
+      "name": "default-url-filtering",
+      "status": "CONFIGURED",
+      "timestamp": "2026-10-28T06:00:00+00:00",
+      "location": "panorama-pushed",
+      "blockedCategories": [
+        "malware",
+        "phishing"
+      ],
+      "alertCategories": [
+        "gambling",
+        "hacking"
+      ],
+      "allowCategories": [
+        "business-and-economy"
+      ],
+      "deviceHostname": "fw-1.suncoast.internal",
+      "site": "Jacksonville",
+      "managedBy": "DIRECT"
+    },
+    {
+      "id": "panorama-shared:dns_security_profile:shared:default-dns-security",
+      "service": "panorama",
+      "evidenceType": "DNS_SECURITY_PROFILE",
+      "name": "default-dns-security",
+      "status": "CONFIGURED",
+      "timestamp": "2026-10-28T06:00:00+00:00",
+      "location": "shared",
+      "dnsSecurityCategories": [
+        {
+          "category": "pan-dns-sec-malware",
+          "action": "sinkhole",
+          "logLevel": "medium"
+        },
+        {
+          "category": "pan-dns-sec-phishing",
+          "action": "default",
+          "logLevel": "medium"
+        },
+        {
+          "category": "pan-dns-sec-cc",
+          "action": "sinkhole",
+          "logLevel": "high"
+        }
+      ],
+      "enabledCategoryCount": 3,
+      "deviceHostname": "panorama.suncoast.internal",
+      "site": "UNSPECIFIED",
+      "managedBy": "PANORAMA"
+    },
+    {
+      "id": "fw-1:security_rule:LOCAL:vsys:allow-web-outbound",
+      "service": "pan_firewall",
+      "evidenceType": "SECURITY_RULE",
+      "name": "allow-web-outbound",
+      "status": "ENABLED",
+      "timestamp": "2026-10-28T06:00:00+00:00",
+      "ruleScope": "LOCAL",
+      "location": "vsys",
+      "action": "allow",
+      "applications": [
+        "ssl",
+        "web-browsing"
+      ],
+      "sourceZones": [
+        "trust"
+      ],
+      "destZones": [
+        "untrust"
+      ],
+      "securityProfileGroup": [
+        "default-profile-group"
+      ],
+      "deviceHostname": "fw-1.suncoast.internal",
+      "site": "Jacksonville",
+      "managedBy": "DIRECT"
+    },
+    {
+      "id": "fw-1:security_rule:LOCAL:vsys:block-known-bad",
+      "service": "pan_firewall",
+      "evidenceType": "SECURITY_RULE",
+      "name": "block-known-bad",
+      "status": "DISABLED",
+      "timestamp": "2026-10-28T06:00:00+00:00",
+      "ruleScope": "LOCAL",
+      "location": "vsys",
+      "action": "deny",
+      "applications": [
+        "any"
+      ],
+      "sourceZones": [
+        "any"
+      ],
+      "destZones": [
+        "any"
+      ],
+      "securityProfiles": {
+        "url-filtering": [
+          "default-url-filtering"
+        ],
+        "spyware": [
+          "default-dns-security"
+        ]
+      },
+      "deviceHostname": "fw-1.suncoast.internal",
+      "site": "Jacksonville",
+      "managedBy": "DIRECT"
+    },
+    {
+      "id": "azure-dg:security_rule:PRE_RULE:device-group:pre-allow-dns",
+      "service": "panorama",
+      "evidenceType": "SECURITY_RULE",
+      "name": "pre-allow-dns",
+      "status": "ENABLED",
+      "timestamp": "2026-10-28T06:00:00+00:00",
+      "ruleScope": "PRE_RULE",
+      "location": "device-group",
+      "action": "allow",
+      "applications": [
+        "dns"
+      ],
+      "sourceZones": [
+        "any"
+      ],
+      "destZones": [
+        "any"
+      ],
+      "securityProfileGroup": [
+        "default-profile-group"
+      ],
+      "deviceGroup": "azure-dg",
+      "deviceHostname": "panorama.suncoast.internal",
+      "site": "UNSPECIFIED",
+      "managedBy": "PANORAMA"
+    },
+    {
+      "id": "panorama-shared:security_rule:POST_RULE:shared:post-deny-all",
+      "service": "panorama",
+      "evidenceType": "SECURITY_RULE",
+      "name": "post-deny-all",
+      "status": "ENABLED",
+      "timestamp": "2026-10-28T06:00:00+00:00",
+      "ruleScope": "POST_RULE",
+      "location": "shared",
+      "action": "deny",
+      "applications": [
+        "any"
+      ],
+      "sourceZones": [
+        "any"
+      ],
+      "destZones": [
+        "any"
+      ],
+      "deviceHostname": "panorama.suncoast.internal",
+      "site": "UNSPECIFIED",
+      "managedBy": "PANORAMA"
+    },
+    {
+      "id": "fw-1:traffic",
+      "service": "pan_firewall",
+      "evidenceType": "TRAFFIC_LOG_SUMMARY",
+      "name": "Traffic Log Summary - fw-1.suncoast.internal",
+      "status": "CONFIGURED",
+      "timestamp": "2026-10-28T06:00:00+00:00",
+      "totalLogCount": 2,
+      "affectedCount": 1,
+      "windowStart": "2026/08/12 09:00:00",
+      "windowEnd": "2026/08/12 09:05:00",
+      "logLimitReached": false,
+      "actionBreakdown": {
+        "allow": 1,
+        "deny": 1
+      },
+      "deviceHostname": "fw-1.suncoast.internal",
+      "site": "Jacksonville",
+      "managedBy": "DIRECT"
+    },
+    {
+      "id": "fw-1:urlFiltering",
+      "service": "pan_firewall",
+      "evidenceType": "URL_FILTERING_LOG_SUMMARY",
+      "name": "URL Filtering Log Summary - fw-1.suncoast.internal",
+      "status": "CONFIGURED",
+      "timestamp": "2026-10-28T06:00:00+00:00",
+      "totalLogCount": 2,
+      "affectedCount": 1,
+      "windowStart": "2026/08/12 09:00:00",
+      "windowEnd": "2026/08/12 09:05:00",
+      "logLimitReached": false,
+      "categoryBreakdown": {
+        "unknown": 2
+      },
+      "deviceHostname": "fw-1.suncoast.internal",
+      "site": "Jacksonville",
+      "managedBy": "DIRECT"
+    },
+    {
+      "id": "fw-1:dnsThreat",
+      "service": "pan_firewall",
+      "evidenceType": "DNS_THREAT_LOG_SUMMARY",
+      "name": "DNS Threat Log Summary - fw-1.suncoast.internal",
+      "status": "CONFIGURED",
+      "timestamp": "2026-10-28T06:00:00+00:00",
+      "totalLogCount": 2,
+      "affectedCount": 2,
+      "windowStart": "2026/08/12 09:00:00",
+      "windowEnd": "2026/08/12 09:05:00",
+      "logLimitReached": false,
+      "categoryBreakdown": {
+        "dns-c2": 2
+      },
+      "deviceHostname": "fw-1.suncoast.internal",
+      "site": "Jacksonville",
+      "managedBy": "DIRECT"
+    }
+  ]
+}

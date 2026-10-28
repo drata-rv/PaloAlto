@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
+import requests
+
 from tests._helpers import load_fixture
 
 import pan_main as m
@@ -41,7 +43,7 @@ class TestBuildDeviceContexts(unittest.TestCase):
     def test_produces_expected_scopes_and_connectors(self):
         contexts = m._build_device_contexts(_load("devices_valid.json"), "svc", "pw")
         by_id = {c.id: c for c in contexts}
-        self.assertEqual(len(contexts), 4)
+        self.assertEqual(len(contexts), 5)  # 3 firewalls + 1 device group + the synthetic Shared context
 
         direct = by_id["fw-1"]
         self.assertEqual(direct.scope, "FIREWALL")
@@ -63,6 +65,11 @@ class TestBuildDeviceContexts(unittest.TestCase):
         self.assertEqual(device_group.scope, "DEVICE_GROUP")
         self.assertEqual(device_group.device_group, "azure-dg")
         self.assertIsNotNone(device_group.connector)
+
+        shared = by_id["panorama-shared"]
+        self.assertEqual(shared.scope, "DEVICE_GROUP")
+        self.assertIsNone(shared.device_group)
+        self.assertIs(shared.connector, device_group.connector)
 
 
 def _fake_resource(key, scopes, connector_attr="connector", raises=False):
@@ -162,6 +169,215 @@ class TestNormalize(unittest.TestCase):
 
         self.assertEqual(len(records), 3)  # 2 license entries + 1 aggregate, nothing from "bad"
         aggregate_resource.normalizer.assert_called_once()
+
+
+def _ctx(**overrides):
+    defaults = dict(id="d", hostname="h", scope="FIREWALL", managed_by="DIRECT", site="S", vsys="vsys1")
+    defaults.update(overrides)
+    return m.DeviceContext(**defaults)
+
+
+class TestLocationSets(unittest.TestCase):
+    def test_direct_firewall_objects_are_vsys_plus_shared(self):
+        calls = m._object_location_kwargs(_ctx())
+        self.assertEqual([c["location"] for c in calls], ["vsys", "shared"])
+
+    def test_panorama_managed_firewall_also_gets_panorama_pushed(self):
+        # Objects/rules pushed from Panorama are NOT returned under location=vsys.
+        objects = m._object_location_kwargs(_ctx(managed_by="PANORAMA"))
+        rules = m._policy_location_kwargs(_ctx(managed_by="PANORAMA"))
+        self.assertIn({"location": "panorama-pushed", "vsys": "vsys1"}, objects)
+        self.assertEqual([c["location"] for c in rules], ["vsys", "panorama-pushed"])
+
+    def test_direct_firewall_rules_do_not_request_panorama_pushed(self):
+        rules = m._policy_location_kwargs(_ctx())
+        self.assertEqual([c["location"] for c in rules], ["vsys"])
+
+    def test_panorama_device_group_and_shared(self):
+        dg = _ctx(scope="DEVICE_GROUP", managed_by="PANORAMA", device_group="azure-dg")
+        shared = _ctx(scope="DEVICE_GROUP", managed_by="PANORAMA", device_group=None)
+        self.assertEqual(m._object_location_kwargs(dg), [{"location": "device-group", "device_group": "azure-dg"}])
+        self.assertEqual(m._object_location_kwargs(shared), [{"location": "shared"}])
+        self.assertEqual(m._pre_post_rule_kwargs(dg), {"device_group": "azure-dg"})
+        self.assertEqual(m._pre_post_rule_kwargs(shared), {"location": "shared"})
+
+
+class TestCollectMultipleLocations(unittest.TestCase):
+    def _resource(self, calls):
+        return m._Resource(
+            key="obj", method_name="obj", normalizer=lambda *a, **k: {}, evidence_type="OBJ",
+            label="obj", scopes=frozenset({"FIREWALL"}), call_kwargs=lambda d: calls,
+        )
+
+    def test_results_from_every_location_are_combined(self):
+        connector = Mock(obj=Mock(side_effect=lambda **kw: [{"@name": kw["location"]}]))
+        device = _ctx(connector=connector)
+        resource = self._resource([{"location": "vsys"}, {"location": "shared"}])
+        with tempfile.NamedTemporaryFile(suffix=".json") as tmp:
+            raw = m._collect([device], [resource], tmp.name, "2026-08-12T00:00:00Z")
+        self.assertEqual([e["@name"] for e in raw["d"]["obj"]], ["vsys", "shared"])
+
+    def test_one_failing_location_keeps_the_others(self):
+        def obj(**kw):
+            if kw["location"] == "shared":
+                raise RuntimeError("bad location")
+            return [{"@name": kw["location"]}]
+
+        device = _ctx(connector=Mock(obj=Mock(side_effect=obj)))
+        resource = self._resource([{"location": "vsys"}, {"location": "shared"}])
+        with tempfile.NamedTemporaryFile(suffix=".json") as tmp:
+            raw = m._collect([device], [resource], tmp.name, "2026-08-12T00:00:00Z")
+        self.assertEqual(raw["d"]["obj"], [{"@name": "vsys"}])
+
+    def test_resource_errors_only_if_every_location_fails(self):
+        device = _ctx(connector=Mock(obj=Mock(side_effect=RuntimeError("down"))))
+        resource = self._resource([{"location": "vsys"}, {"location": "shared"}])
+        with tempfile.NamedTemporaryFile(suffix=".json") as tmp:
+            raw = m._collect([device], [resource], tmp.name, "2026-08-12T00:00:00Z")
+        self.assertIn("error", raw["d"]["obj"])
+
+
+class TestUnreachableHostSkipping(unittest.TestCase):
+    TS = "2026-08-12T00:00:00Z"
+
+    def _resources(self, n):
+        return [
+            m._Resource(
+                key=f"r{i}", method_name="call", normalizer=lambda *a, **k: {}, evidence_type=f"R{i}",
+                label=f"r{i}", scopes=frozenset({"FIREWALL"}),
+            )
+            for i in range(n)
+        ]
+
+    def _run(self, devices, resources):
+        with tempfile.NamedTemporaryFile(suffix=".json") as tmp:
+            return m._collect(devices, resources, tmp.name, self.TS)
+
+    def test_skips_remaining_calls_after_three_connect_timeouts(self):
+        call = Mock(side_effect=requests.exceptions.ConnectTimeout("timed out"))
+        raw = self._run([_ctx(connector=Mock(host="10.0.0.1", call=call))], self._resources(7))
+
+        self.assertEqual(call.call_count, 3)
+        for i in range(3):
+            self.assertNotIn("skipped", raw["d"][f"r{i}"]["error"])
+        for i in range(3, 7):
+            self.assertTrue(raw["d"][f"r{i}"]["error"].startswith("skipped: 10.0.0.1 unreachable"))
+
+    def test_a_success_resets_the_count(self):
+        timeout = requests.exceptions.ConnectTimeout("timed out")
+        call = Mock(side_effect=[timeout, timeout, [{"@name": "ok"}], timeout, timeout])
+        raw = self._run([_ctx(connector=Mock(host="10.0.0.1", call=call))], self._resources(5))
+
+        self.assertEqual(call.call_count, 5)
+        self.assertEqual(raw["d"]["r2"], [{"@name": "ok"}])
+
+    def test_other_errors_never_trigger_skipping(self):
+        call = Mock(side_effect=RuntimeError("HTTP 403"))
+        self._run([_ctx(connector=Mock(host="10.0.0.1", call=call))], self._resources(10))
+        self.assertEqual(call.call_count, 10)
+
+    def test_read_timeout_does_not_count_as_unreachable(self):
+        call = Mock(side_effect=requests.exceptions.ReadTimeout("slow"))
+        self._run([_ctx(connector=Mock(host="10.0.0.1", call=call))], self._resources(6))
+        self.assertEqual(call.call_count, 6)
+
+    def test_host_is_shared_across_contexts(self):
+        # e.g. every device group of one Panorama uses the same connector
+        call = Mock(side_effect=requests.exceptions.ConnectTimeout("timed out"))
+        connector = Mock(host="panorama.internal", call=call)
+        devices = [_ctx(id="dg1", connector=connector), _ctx(id="dg2", connector=connector)]
+        raw = self._run(devices, self._resources(2))
+
+        self.assertEqual(call.call_count, 3)
+        self.assertTrue(raw["dg2"]["r1"]["error"].startswith("skipped: panorama.internal unreachable"))
+
+    def test_other_hosts_are_unaffected(self):
+        dead = Mock(host="10.0.0.1", call=Mock(side_effect=requests.exceptions.ConnectTimeout("timed out")))
+        alive = Mock(host="10.0.0.2", call=Mock(return_value=[{"@name": "ok"}]))
+        raw = self._run([_ctx(id="dead", connector=dead), _ctx(id="alive", connector=alive)], self._resources(4))
+
+        self.assertEqual(alive.call.call_count, 4)
+        self.assertEqual(raw["alive"]["r3"], [{"@name": "ok"}])
+
+    def test_remaining_locations_of_one_resource_are_skipped_too(self):
+        call = Mock(side_effect=requests.exceptions.ConnectTimeout("timed out"))
+        resource = m._Resource(
+            key="obj", method_name="call", normalizer=lambda *a, **k: {}, evidence_type="OBJ",
+            label="obj", scopes=frozenset({"FIREWALL"}),
+            call_kwargs=lambda d: [{"location": str(i)} for i in range(6)],
+        )
+        raw = self._run([_ctx(connector=Mock(host="10.0.0.1", call=call))], [resource])
+
+        self.assertEqual(call.call_count, 3)
+        self.assertIn("skipped: 10.0.0.1 unreachable", raw["d"]["obj"]["error"])
+
+
+class TestLoudFailure(unittest.TestCase):
+    def test_failures_list_dead_devices_and_failed_resources_only(self):
+        raw = {
+            "dead": {"error": "boom"},
+            "partial": {
+                "license": [{"feature": "x"}],
+                "security_rule": {"error": "HTTP 403"},
+            },
+            "no-host": {"security_rule": {"error": f"{m._NOT_COLLECTED} no direct host configured for this device"}},
+            "healthy": {"license": [{"feature": "x"}]},
+        }
+        self.assertEqual(m._collection_failures(raw), ["dead", "partial/security_rule"])
+
+    def _run_main(self, raw, records):
+        env = {"PAN_USERNAME": "u", "PAN_PASSWORD": "p"}
+        with patch.dict(os.environ, env), \
+                patch("sys.argv", ["pan_main.py", "--devices-config", "x.json"]), \
+                patch.object(m, "_load_devices_config", return_value={}), \
+                patch.object(m, "_validate_config"), \
+                patch.object(m, "_build_device_contexts", return_value=[]), \
+                patch.object(m, "_collect", return_value=raw), \
+                patch.object(m, "_normalize", return_value=records), \
+                patch.object(m, "_write_snapshot"), \
+                patch.object(m, "_publish") as publish:
+            try:
+                m.main()
+            finally:
+                self.publish = publish
+
+    def test_no_records_raises(self):
+        with self.assertRaises(m.CollectionError) as ctx:
+            self._run_main({"dead": {"error": "timed out"}}, [])
+        self.assertIn("no records collected", str(ctx.exception))
+        self.assertIn("dead", str(ctx.exception))
+
+    def test_partial_failure_publishes_first_then_raises(self):
+        raw = {"ok": {"license": [{}]}, "bad": {"error": "timed out"}}
+        with self.assertRaises(m.CollectionError) as ctx:
+            self._run_main(raw, [{"id": "a"}])
+        self.publish.assert_called_once_with([{"id": "a"}])
+        self.assertIn("1 records published", str(ctx.exception))
+        self.assertIn("bad", str(ctx.exception))
+
+    def test_clean_run_does_not_raise(self):
+        self._run_main({"ok": {"license": [{}]}}, [{"id": "a"}])
+        self.publish.assert_called_once_with([{"id": "a"}])
+
+
+class TestRunSurvivesBadInputs(unittest.TestCase):
+    def test_one_unnormalizable_record_is_skipped_not_fatal(self):
+        def normalizer(entry, device, ts, **kw):
+            if entry["@name"] == "bad":
+                raise KeyError("unexpected shape")
+            return {"id": entry["@name"]}
+
+        resource = m._Resource(
+            key="k", method_name="k", normalizer=normalizer, evidence_type="K",
+            label="k", scopes=frozenset({"FIREWALL"}),
+        )
+        raw = {"d": {"k": [{"@name": "a"}, {"@name": "bad"}, {"@name": "c"}]}}
+        records = m._normalize(raw, [_ctx()], [resource], "2026-08-12T00:00:00Z")
+        self.assertEqual([r["id"] for r in records], ["a", "c"])
+
+    def test_unwritable_output_path_does_not_abort(self):
+        # e.g. an Azure Function running from a read-only package
+        m._write_snapshot("/nonexistent-dir/definitely/not/writable.json", "ts", {}, [])  # must not raise
 
 
 if __name__ == "__main__":

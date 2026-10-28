@@ -108,34 +108,102 @@ class TestNormalizeSecurityRule(unittest.TestCase):
 class TestLogSummaries(unittest.TestCase):
     def setUp(self):
         self.entries = [
-            {"action": "allow"}, {"action": "deny"}, {"action": "deny"}, {"action": "allow"},
+            {"action": "allow", "receive_time": "2026/08/12 09:00:00"},
+            {"action": "deny", "receive_time": "2026/08/12 09:05:00"},
+            {"action": "deny", "receive_time": "2026/08/12 09:10:00"},
+            {"action": "allow", "receive_time": "2026/08/12 09:02:00"},
         ]
 
-    def test_traffic_summary_counts_denies_as_affected(self):
-        record = schemas.normalize_traffic_log_summary(
-            self.entries, _device(), RUN_TS, "2026-08-12T00:00:00Z", "2026-08-12T01:00:00Z"
-        )
+    def test_traffic_summary_counts_non_allow_as_affected(self):
+        record = schemas.normalize_traffic_log_summary(self.entries, _device(), RUN_TS)
         self.assertEqual(record["status"], "CONFIGURED")
         self.assertEqual(record["totalLogCount"], 4)
         self.assertEqual(record["affectedCount"], 2)
         self.assertEqual(record["actionBreakdown"], {"allow": 2, "deny": 2})
 
+    def test_every_documented_non_allow_traffic_action_counts(self):
+        # PAN's traffic-log table: allow, deny, drop, drop ICMP, reset client/server/both
+        # (spaces in the doc table, hyphens in syslog/XML -- both must work).
+        actions = ["allow", "deny", "drop", "drop ICMP", "reset client", "reset-server", "reset-both"]
+        record = schemas.normalize_traffic_log_summary([{"action": a} for a in actions], _device(), RUN_TS)
+        self.assertEqual(record["affectedCount"], 6)
+
+    def test_url_summary_counts_every_non_allow_action(self):
+        actions = ["allow", "alert", "block-url", "block-continue", "continue", "block-override", "override-lockout"]
+        record = schemas.normalize_url_filtering_log_summary([{"action": a} for a in actions], _device(), RUN_TS)
+        self.assertEqual(record["affectedCount"], 6)
+
+    def test_window_comes_from_the_entries_not_the_run_time(self):
+        record = schemas.normalize_traffic_log_summary(self.entries, _device(), RUN_TS)
+        self.assertEqual(record["windowStart"], "2026/08/12 09:00:00")
+        self.assertEqual(record["windowEnd"], "2026/08/12 09:10:00")
+
+    def test_id_is_stable_across_runs(self):
+        first = schemas.normalize_traffic_log_summary(self.entries, _device(), "2026-08-12T00:00:00+00:00")
+        second = schemas.normalize_traffic_log_summary(self.entries, _device(), "2026-08-13T00:00:00+00:00")
+        self.assertEqual(first["id"], second["id"])
+        self.assertEqual(first["id"], "fw-site-a-1:traffic")
+
+    def test_log_limit_reached_flags_a_capped_sample(self):
+        capped = schemas.normalize_traffic_log_summary(self.entries, _device(), RUN_TS, sample_limit=4)
+        under = schemas.normalize_traffic_log_summary(self.entries, _device(), RUN_TS, sample_limit=1000)
+        self.assertIs(capped["logLimitReached"], True)
+        self.assertIs(under["logLimitReached"], False)
+
     def test_zero_entries_still_emits_one_record(self):
-        record = schemas.normalize_traffic_log_summary(
-            [], _device(), RUN_TS, "2026-08-12T00:00:00Z", "2026-08-12T01:00:00Z"
-        )
+        record = schemas.normalize_traffic_log_summary([], _device(), RUN_TS)
         self.assertEqual(record["totalLogCount"], 0)
         self.assertEqual(record["affectedCount"], 0)
         self.assertEqual(record["status"], "CONFIGURED")
+        self.assertNotIn("windowStart", record)
 
-    def test_dns_threat_summary_affected_equals_total(self):
-        entries = [{"category": "dns-c2"}, {"category": "dns-c2"}, {"category": "phishing"}]
-        record = schemas.normalize_dns_threat_log_summary(
-            entries, _device(), RUN_TS, "2026-08-12T00:00:00Z", "2026-08-12T01:00:00Z"
-        )
+    def test_dns_threat_summary_groups_by_thr_category_not_url_category(self):
+        # On a threat-log entry `category` is the URL category ("any" for DNS
+        # detections); the threat classification is `thr_category`.
+        entries = [
+            {"thr_category": "dns-c2", "category": "any"},
+            {"thr_category": "dns-c2", "category": "any"},
+            {"thr_category": "dns-malware", "category": "any"},
+        ]
+        record = schemas.normalize_dns_threat_log_summary(entries, _device(), RUN_TS)
         self.assertEqual(record["totalLogCount"], 3)
         self.assertEqual(record["affectedCount"], 3)
-        self.assertEqual(record["categoryBreakdown"], {"dns-c2": 2, "phishing": 1})
+        self.assertEqual(record["categoryBreakdown"], {"dns-c2": 2, "dns-malware": 1})
+
+
+class TestTolerantParsing(unittest.TestCase):
+    def test_member_list_accepts_dict_list_and_string(self):
+        self.assertEqual(schemas._member_list({"member": ["a", "b"]}), ["a", "b"])
+        self.assertEqual(schemas._member_list(["a", "b"]), ["a", "b"])
+        self.assertEqual(schemas._member_list("a"), ["a"])
+        self.assertEqual(schemas._member_list({"member": "a"}), ["a"])
+        self.assertIsNone(schemas._member_list(None))
+        self.assertIsNone(schemas._member_list({}))
+
+    def test_rule_with_bare_list_profile_group_does_not_raise(self):
+        entry = {"@name": "r", "profile-setting": {"group": ["strict"]}}
+        record = schemas.normalize_security_rule(entry, _device(), RUN_TS, rule_scope="LOCAL")
+        self.assertEqual(record["securityProfileGroup"], ["strict"])
+
+    def test_dns_profile_with_single_entry_object_does_not_raise(self):
+        entry = {"@name": "p", "botnet-domains": {"dns-security-categories": {"entry": {"@name": "pan-dns-sec-cc", "action": "sinkhole"}}}}
+        record = schemas.normalize_dns_security_profile(entry, _device(), RUN_TS)
+        self.assertEqual(record["enabledCategoryCount"], 1)
+
+
+class TestLocationInRecords(unittest.TestCase):
+    def test_location_is_recorded_and_makes_ids_unique(self):
+        in_vsys = {"@name": "default", "@location": "vsys"}
+        pushed = {"@name": "default", "@location": "panorama-pushed"}
+        a = schemas.normalize_url_filtering_profile(in_vsys, _device(), RUN_TS)
+        b = schemas.normalize_url_filtering_profile(pushed, _device(), RUN_TS)
+        self.assertEqual(a["location"], "vsys")
+        self.assertEqual(b["location"], "panorama-pushed")
+        self.assertNotEqual(a["id"], b["id"])
+
+    def test_missing_location_is_omitted_not_null(self):
+        record = schemas.normalize_url_filtering_profile({"@name": "default"}, _device(), RUN_TS)
+        self.assertNotIn("location", record)
 
 
 if __name__ == "__main__":

@@ -14,9 +14,9 @@ pickup point for whoever continues.
 - `pan_drata_schemas.py` / `pan_drata_publisher.py` — new normalizer + publisher layer,
   mirroring the sibling Microsoft connector's pattern. Publishes to a single
   `PAN_DRATA_RESOURCE_ID`.
-- `tests/` — offline unittest suite (50 tests) built from real captured examples in
+- `tests/` — offline unittest suite (43 tests) built from real captured examples in
   `pan_api_research.md`, since there's still no live device to test against. Run with
-  `pip install -r requirements-dev.txt && python -m unittest discover -s tests -t .`.
+  `python -m unittest discover -s tests -t .`.
 - `README.md`, `.env.example`, `requirements.txt` — previously missing, now present.
 - `pan_api_research.md` — unchanged since the last research pass; still the source of
   truth for every confirmed-vs-guessed field shape.
@@ -24,13 +24,66 @@ pickup point for whoever continues.
   was a real gap until now: `pan_drata_publisher.py` was built to POST to an *existing*
   `PAN_DRATA_CONNECTION_ID`/`PAN_DRATA_RESOURCE_ID`, but nothing defined the schema you'd
   submit to Drata to create that connection + resource in the first place, so those env
-  vars had no real values to be filled in with. `schema.json` covers the full field union
-  across all 7 evidence types (one resource holds all of them, distinguished by
-  `evidenceType`), validated against every real normalizer output in `tests/test_schema.py`
-  (`requirements-dev.txt` adds `jsonschema`, test-only). README's "Custom Connection
-  schema" section has the exact steps to submit it in Drata. **Still needs a human to
-  actually do that submission** — this only produces the artifact, it doesn't create the
-  connection or mint the real `PAN_DRATA_CONNECTION_ID`/`PAN_DRATA_RESOURCE_ID` values.
+  vars had no real values to be filled in with. Covers the full field union across all 7
+  evidence types (one resource holds all of them, distinguished by `evidenceType`), taken
+  directly from `pan_drata_schemas.py`'s `_build()` calls and checked by hand against real
+  normalizer output for every evidence type/rule scope before handing over. README's
+  "Custom Connection schema" section has the exact steps to submit it in Drata. **Still
+  needs a human to actually do that submission** — this only produces the artifact, it
+  doesn't create the connection or mint the real `PAN_DRATA_CONNECTION_ID`/
+  `PAN_DRATA_RESOURCE_ID` values.
+
+## Pre-customer-meeting review (2026-10-28)
+
+Fixed (each checked against Palo Alto's published field tables / REST docs; 62 tests pass,
+plus a throwaway end-to-end dry run through collect -> normalize -> `schema.json`):
+- **Coverage:** profiles and rules were only requested from `location=vsys`. Objects/rules
+  pushed from Panorama live under `panorama-pushed`, and Shared objects/rules under `shared`,
+  so Panorama-managed firewalls (8 of ~10 Azure) and Shared-defined policy were being missed.
+  Now: firewall = vsys + shared (+ panorama-pushed if Panorama-managed); Panorama = device
+  group + a synthetic `panorama-shared` context (collected once, not once per device group).
+  Records carry `location`, and it is part of the record id.
+- **DNS threat query:** bare `ddns` / `parked` / `malware` -> `dns-ddns` / `dns-parked` /
+  `dns-malware` (+ `dns-grayware`). Docs say "replace c2" in `dns-c2`; bare `malware` is also a
+  real *non-DNS* threat category and was pulling unrelated threat logs into the DNS summary.
+- **DNS breakdown** grouped by `category`, which on a threat log is the URL category (`any` for
+  DNS detections). Now `thr_category`.
+- **Action counting:** traffic missed `reset-both` / `drop ICMP`; URL missed `block-continue`,
+  `block-override`, `override-lockout`. Now "anything other than allow", spaces/hyphens normalized.
+- **Log summary honesty:** `windowStart`/`windowEnd` were both just the run time and the record id
+  changed every run (an unbounded pile of new records Drata never deletes). Now the id is stable
+  per device + log type, the window is the real min/max `receive_time` of the sample, and
+  `logLimitReached` says whether the 1,000-entry cap truncated it.
+- **Robustness:** one unexpected record shape used to abort the whole publish (normalization was
+  unguarded; several REST shapes are still unconfirmed) -- now skipped + logged. A failed
+  snapshot write (read-only Function filesystem) no longer aborts the run. Member/entry parsing
+  tolerates bare list/string/object shapes.
+
+Added after the first Azure run (invocation log dated 2026-09-29, `palo_alto_run`). That run
+executed origin's old code against the placeholder `example-fw` / `10.0.0.1` from
+`devices.example.json`, so it never reached a real device:
+- **Read-only filesystem crash** (`OSError: [Errno 30]` writing `pan_payload.json` into
+  `/home/site/wwwroot`) -- fixed above (snapshot write is non-fatal).
+- **Unreachable hosts**: after 3 consecutive connect timeouts to one management host
+  (`_UNREACHABLE_AFTER`), every remaining call to that host is skipped for the run -- ~90s
+  per dead host instead of 7 x 30s. Counted per host, so all of a Panorama's device groups
+  share one count. Read timeouts and HTTP errors don't count; any answer resets it.
+- **Fail loudly**: `main()` raises `CollectionError` (CLI exits 1) after publishing, when a run
+  collects 0 records or any device/resource failed. A resource skipped by design (Panorama-managed
+  firewall with no direct host) is not a failure. **The Azure wrapper (`function_app.py`, not in
+  either repo) must re-raise** -- the 2026-09-29 log shows it catching the exception and
+  returning, so Azure reported `Succeeded` on a crash. Add `raise` after its `logging.exception`.
+
+Still open / needs a decision (not changed):
+- Log counts are "last 1,000 matching entries", not a 24h total. A true time-bounded count needs
+  a `receive_time` filter (device-local time) and paging; decide if the customer needs that.
+- `authcode` is pushed to Drata and the raw license XML (incl. authcode) is logged at INFO into
+  App Insights. Recommend dropping `authcode` from the evidence and redacting the log line.
+- `enabledCategoryCount` counts every configured DNS category, including ones set to `allow`.
+- DNS category list is incomplete (phishing / proxy-avoidance / new-domain names undocumented in
+  what was found) -- compare `thr_category` values in a live Threat log view on first run.
+- Sample records posted earlier to connection 29 (`fw-1:*`, `dg-1:*`) are still in that
+  resource unless deleted; Drata's records API is upsert-only so real runs won't remove them.
 
 ## Deployment decision (resolved 2026-08-14)
 

@@ -70,7 +70,9 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Callable, Dict, FrozenSet, List, Optional
+from typing import Callable, Dict, FrozenSet, List, Optional, Union
+
+import requests
 
 import pan_drata_schemas as schemas
 from pan_auth import PanAuthClient
@@ -86,6 +88,12 @@ logger = logging.getLogger(__name__)
 
 class ConfigError(Exception):
     """Raised when devices.json (or the environment) is structurally invalid."""
+
+
+class CollectionError(Exception):
+    """Raised at the end of a run that collected nothing, or in which a
+    device/resource failed -- after whatever did collect has been published,
+    so the host (an Azure Function, cron) sees a failed run, not a green one."""
 
 
 # ----------------------------------------------------------------------
@@ -136,16 +144,47 @@ class _Resource:
     scopes: FrozenSet[str]
     connector_attr: str = "connector"
     is_aggregate: bool = False
-    call_kwargs: Callable[[DeviceContext], dict] = field(default=lambda d: {})
+    call_kwargs: Callable[[DeviceContext], Union[dict, list]] = field(default=lambda d: {})
     normalizer_kwargs: dict = field(default_factory=dict)
 
 
-def _location_kwargs(device: DeviceContext) -> dict:
-    """Shared by profile resources, which are callable at both FIREWALL
-    (location=vsys) and DEVICE_GROUP (location=device-group) scope."""
+def _object_location_kwargs(device: DeviceContext) -> list:
+    """
+    Profiles (Objects) live in more than one REST location, and each call
+    only returns its own location -- so one call per location:
+      - firewall: its own vsys, plus Shared; plus panorama-pushed when the
+        firewall is Panorama-managed (objects pushed down from Panorama are
+        NOT returned under location=vsys).
+      - Panorama: a device group's own objects, or the Shared set (collected
+        once, via the synthetic "Shared" context).
+    Valid location values: docs.paloaltonetworks.com/pan-os/11-1/.../methods-supported-rest-api
+    (firewall: predefined | shared (Objects only) | vsys | panorama-pushed;
+    Panorama: shared | device-group; vsys required for vsys/panorama-pushed).
+    """
     if device.scope == "DEVICE_GROUP":
-        return {"location": "device-group", "device_group": device.device_group}
-    return {"location": "vsys", "vsys": device.vsys}
+        if device.device_group:
+            return [{"location": "device-group", "device_group": device.device_group}]
+        return [{"location": "shared"}]
+    calls = [{"location": "vsys", "vsys": device.vsys}, {"location": "shared"}]
+    if device.managed_by == "PANORAMA":
+        calls.append({"location": "panorama-pushed", "vsys": device.vsys})
+    return calls
+
+
+def _policy_location_kwargs(device: DeviceContext) -> list:
+    """Firewall security rules: local rules (vsys) plus, when Panorama-managed,
+    the Pre/Post rules Panorama pushed (location=panorama-pushed, not vsys)."""
+    calls = [{"location": "vsys", "vsys": device.vsys}]
+    if device.managed_by == "PANORAMA":
+        calls.append({"location": "panorama-pushed", "vsys": device.vsys})
+    return calls
+
+
+def _pre_post_rule_kwargs(device: DeviceContext) -> dict:
+    """Panorama Pre/Post rules: a device group's own, or the Shared rulebase."""
+    if device.device_group:
+        return {"device_group": device.device_group}
+    return {"location": "shared"}
 
 
 # Best-effort DNS threat query: PAN-OS's confirmed-correct filter field is
@@ -156,9 +195,21 @@ def _location_kwargs(device: DeviceContext) -> dict:
 # against a live device.
 _DNS_THREAT_QUERY = (
     "(category-of-threatid eq dns-c2) or (category-of-threatid eq adns-hijacking) "
-    "or (category-of-threatid eq ddns) or (category-of-threatid eq parked) "
-    "or (category-of-threatid eq malware)"
+    "or (category-of-threatid eq dns-ddns) or (category-of-threatid eq dns-parked) "
+    "or (category-of-threatid eq dns-malware) or (category-of-threatid eq dns-grayware)"
 )
+
+# Each log summary covers the N most recent matching entries (not a time
+# window) -- see pan_drata_schemas._log_summary. PAN's documented nlogs
+# default is 20; 1000 keeps one job well within the poll timeout.
+_LOG_SAMPLE_SIZE = 1000
+
+# A dead management IP costs one 30s connect timeout per call. After this many
+# consecutive connect timeouts to one host, its remaining calls are skipped.
+_UNREACHABLE_AFTER = 3
+
+# Prefix of the error text for a resource skipped by design (not a failure).
+_NOT_COLLECTED = "not collected:"
 
 _RESOURCE_REGISTRY: List[_Resource] = [
     _Resource(
@@ -171,55 +222,55 @@ _RESOURCE_REGISTRY: List[_Resource] = [
         key="url_filtering_profile", method_name="get_url_filtering_profiles",
         normalizer=schemas.normalize_url_filtering_profile,
         evidence_type="URL_FILTERING_PROFILE", label="URL Filtering Profile",
-        scopes=frozenset({"FIREWALL", "DEVICE_GROUP"}), call_kwargs=_location_kwargs,
+        scopes=frozenset({"FIREWALL", "DEVICE_GROUP"}), call_kwargs=_object_location_kwargs,
     ),
     _Resource(
         key="dns_security_profile", method_name="get_dns_security_profiles",
         normalizer=schemas.normalize_dns_security_profile,
         evidence_type="DNS_SECURITY_PROFILE", label="DNS Security Profile",
-        scopes=frozenset({"FIREWALL", "DEVICE_GROUP"}), call_kwargs=_location_kwargs,
+        scopes=frozenset({"FIREWALL", "DEVICE_GROUP"}), call_kwargs=_object_location_kwargs,
     ),
     _Resource(
         key="security_rule", method_name="get_security_rules",
         normalizer=schemas.normalize_security_rule,
         evidence_type="SECURITY_RULE", label="Security Rule",
-        scopes=frozenset({"FIREWALL"}), call_kwargs=_location_kwargs,
+        scopes=frozenset({"FIREWALL"}), call_kwargs=_policy_location_kwargs,
         normalizer_kwargs={"rule_scope": "LOCAL"},
     ),
     _Resource(
         key="security_pre_rule", method_name="get_security_pre_rules",
         normalizer=schemas.normalize_security_rule,
         evidence_type="SECURITY_RULE", label="Security Pre-Rule",
-        scopes=frozenset({"DEVICE_GROUP"}), call_kwargs=lambda d: {"device_group": d.device_group},
+        scopes=frozenset({"DEVICE_GROUP"}), call_kwargs=_pre_post_rule_kwargs,
         normalizer_kwargs={"rule_scope": "PRE_RULE"},
     ),
     _Resource(
         key="security_post_rule", method_name="get_security_post_rules",
         normalizer=schemas.normalize_security_rule,
         evidence_type="SECURITY_RULE", label="Security Post-Rule",
-        scopes=frozenset({"DEVICE_GROUP"}), call_kwargs=lambda d: {"device_group": d.device_group},
+        scopes=frozenset({"DEVICE_GROUP"}), call_kwargs=_pre_post_rule_kwargs,
         normalizer_kwargs={"rule_scope": "POST_RULE"},
     ),
     _Resource(
         key="traffic_log_summary", method_name="get_traffic_logs",
         normalizer=schemas.normalize_traffic_log_summary,
         evidence_type="TRAFFIC_LOG_SUMMARY", label="Traffic Log Summary",
-        scopes=frozenset({"FIREWALL"}), call_kwargs=lambda d: {"nlogs": 1000},
-        is_aggregate=True,
+        scopes=frozenset({"FIREWALL"}), call_kwargs=lambda d: {"nlogs": _LOG_SAMPLE_SIZE},
+        is_aggregate=True, normalizer_kwargs={"sample_limit": _LOG_SAMPLE_SIZE},
     ),
     _Resource(
         key="url_filtering_log_summary", method_name="get_url_filtering_logs",
         normalizer=schemas.normalize_url_filtering_log_summary,
         evidence_type="URL_FILTERING_LOG_SUMMARY", label="URL Filtering Log Summary",
-        scopes=frozenset({"FIREWALL"}), call_kwargs=lambda d: {"nlogs": 1000},
-        is_aggregate=True,
+        scopes=frozenset({"FIREWALL"}), call_kwargs=lambda d: {"nlogs": _LOG_SAMPLE_SIZE},
+        is_aggregate=True, normalizer_kwargs={"sample_limit": _LOG_SAMPLE_SIZE},
     ),
     _Resource(
         key="dns_threat_log_summary", method_name="get_dns_threat_logs",
         normalizer=schemas.normalize_dns_threat_log_summary,
         evidence_type="DNS_THREAT_LOG_SUMMARY", label="DNS Threat Log Summary",
-        scopes=frozenset({"FIREWALL"}), call_kwargs=lambda d: {"nlogs": 1000, "query": _DNS_THREAT_QUERY},
-        is_aggregate=True,
+        scopes=frozenset({"FIREWALL"}), call_kwargs=lambda d: {"nlogs": _LOG_SAMPLE_SIZE, "query": _DNS_THREAT_QUERY},
+        is_aggregate=True, normalizer_kwargs={"sample_limit": _LOG_SAMPLE_SIZE},
     ),
 ]
 
@@ -297,7 +348,10 @@ def _build_device_contexts(config: dict, username: str, password: str) -> List[D
         # License is always proxied through Panorama (confirmed to work via
         # target=<serial>, pan_api_research.md section 6) regardless of
         # whether a direct host is also configured below.
-        license_conn = SimpleNamespace(get_license_info=lambda s=serial: panorama_conn.get_license_info(target=s))
+        license_conn = SimpleNamespace(
+            get_license_info=lambda s=serial: panorama_conn.get_license_info(target=s),
+            host=getattr(panorama_conn, "host", None),
+        )
 
         direct_conn = None
         if fw_cfg.get("host"):
@@ -317,8 +371,16 @@ def _build_device_contexts(config: dict, username: str, password: str) -> List[D
             vsys=fw_cfg.get("vsys", "vsys1"), connector=direct_conn, license_connector=license_conn,
         ))
 
-    if panorama_conn:
-        for dg_name in panorama_cfg.get("device_groups", []):
+    if panorama_conn and panorama_cfg.get("device_groups"):
+        # Objects and Pre/Post rules defined in Panorama's Shared location
+        # apply to every device group and are NOT returned by a device-group
+        # query. Collect them once, as their own context, rather than once
+        # per device group (which would duplicate them).
+        contexts.append(DeviceContext(
+            id="panorama-shared", hostname=panorama_cfg["host"], scope="DEVICE_GROUP", managed_by="PANORAMA",
+            site=panorama_cfg.get("site", "UNSPECIFIED"), device_group=None, connector=panorama_conn,
+        ))
+        for dg_name in panorama_cfg["device_groups"]:
             contexts.append(DeviceContext(
                 id=dg_name, hostname=panorama_cfg["host"], scope="DEVICE_GROUP", managed_by="PANORAMA",
                 site=panorama_cfg.get("site", "UNSPECIFIED"), device_group=dg_name, connector=panorama_conn,
@@ -332,8 +394,14 @@ def _build_device_contexts(config: dict, username: str, password: str) -> List[D
 # ----------------------------------------------------------------------
 
 def _write_snapshot(output_path: str, collected_at: str, raw: dict, normalized: list) -> None:
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump({"collected_at": collected_at, "raw": raw, "normalized": normalized}, f, indent=2, default=str)
+    """The local JSON file is a debugging/dry-run aid, not the deliverable --
+    on a read-only filesystem (e.g. an Azure Function running from a package)
+    a failed write must not abort the collection or the Drata publish."""
+    try:
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump({"collected_at": collected_at, "raw": raw, "normalized": normalized}, f, indent=2, default=str)
+    except OSError as exc:
+        logger.warning("snapshot_write_failed path=%s error=%s (continuing; pass --output to a writable path such as /tmp/pan_payload.json)", output_path, exc)
 
 
 def _collect(device_contexts: List[DeviceContext], resources: List[_Resource], output_path: str, run_timestamp: str) -> dict:
@@ -350,9 +418,16 @@ def _collect(device_contexts: List[DeviceContext], resources: List[_Resource], o
     endpoint doesn't take down its siblings; the whole per-device loop is
     caught again so one dead device can't take down the run. Writes a
     snapshot to disk after every device so a mid-run crash doesn't lose
-    already-collected evidence.
+    already-collected evidence. A host that hits _UNREACHABLE_AFTER
+    consecutive connect timeouts has its remaining calls skipped.
     """
     raw_results: dict = {}
+    # Consecutive connect timeouts per management host, shared across every
+    # context that uses it (e.g. all of a Panorama's device groups).
+    timeouts_by_host: Dict[str, int] = {}
+
+    def unreachable(host) -> bool:
+        return isinstance(host, str) and timeouts_by_host.get(host, 0) >= _UNREACHABLE_AFTER
 
     for device in device_contexts:
         device_results: dict = {}
@@ -363,18 +438,58 @@ def _collect(device_contexts: List[DeviceContext], resources: List[_Resource], o
 
                 connector = getattr(device, resource.connector_attr)
                 if connector is None:
-                    device_results[resource.key] = {"error": "not collected: no direct host configured for this device"}
+                    device_results[resource.key] = {"error": f"{_NOT_COLLECTED} no direct host configured for this device"}
                     continue
 
+                host = getattr(connector, "host", None)
+                skipped = f"skipped: {host} unreachable ({_UNREACHABLE_AFTER} consecutive connect timeouts)"
+                if unreachable(host):
+                    logger.error("call_skipped device=%s key=%s %s", device.id, resource.key, skipped)
+                    device_results[resource.key] = {"error": skipped}
+                    continue
+
+                # call_kwargs returns one kwargs dict, or a list of them when the
+                # resource must be fetched once per REST location. Each call is
+                # isolated: a failing location is logged but doesn't discard
+                # the others; the resource only errors if every call failed.
                 try:
-                    kwargs = resource.call_kwargs(device)
-                    raw = getattr(connector, resource.method_name)(**kwargs)
-                    count = len(raw) if isinstance(raw, list) else 1
-                    logger.info("call_ok device=%s key=%s records=%d", device.id, resource.key, count)
-                    device_results[resource.key] = raw
+                    kwargs_list = resource.call_kwargs(device)
+                    if not isinstance(kwargs_list, list):
+                        kwargs_list = [kwargs_list]
                 except Exception as exc:
                     logger.error("call_failed device=%s key=%s error=%s", device.id, resource.key, exc)
                     device_results[resource.key] = {"error": str(exc)}
+                    continue
+
+                combined = None
+                errors = []
+                for kwargs in kwargs_list:
+                    if unreachable(host):
+                        errors.append(skipped)
+                        break
+                    try:
+                        raw = getattr(connector, resource.method_name)(**kwargs)
+                        if isinstance(raw, list):
+                            combined = (combined or []) + raw
+                        else:
+                            combined = raw
+                        if isinstance(host, str):
+                            timeouts_by_host[host] = 0
+                        logger.info(
+                            "call_ok device=%s key=%s call=%s records=%d",
+                            device.id, resource.key, kwargs, len(raw) if isinstance(raw, list) else 1,
+                        )
+                    except Exception as exc:
+                        if isinstance(exc, requests.exceptions.ConnectTimeout) and isinstance(host, str):
+                            timeouts_by_host[host] = timeouts_by_host.get(host, 0) + 1
+                            if unreachable(host):
+                                logger.error("host_unreachable host=%s -- skipping its remaining calls this run", host)
+                        elif isinstance(host, str):
+                            timeouts_by_host[host] = 0
+                        logger.error("call_failed device=%s key=%s call=%s error=%s", device.id, resource.key, kwargs, exc)
+                        errors.append(str(exc))
+
+                device_results[resource.key] = {"error": "; ".join(errors)} if combined is None else combined
         except Exception as exc:
             logger.error("device_failed device=%s error=%s", device.id, exc)
             device_results = {"error": str(exc)}
@@ -383,6 +498,22 @@ def _collect(device_contexts: List[DeviceContext], resources: List[_Resource], o
         _write_snapshot(output_path, run_timestamp, raw_results, [])
 
     return raw_results
+
+
+def _collection_failures(raw_results: dict) -> List[str]:
+    """`device` for a dead device, `device/key` for a failed resource. A
+    resource skipped by design (no direct host configured) is not a failure."""
+    failures: List[str] = []
+    for device_id, device_raw in raw_results.items():
+        if not isinstance(device_raw, dict):
+            continue
+        if set(device_raw.keys()) == {"error"}:
+            failures.append(device_id)
+            continue
+        for key, data in device_raw.items():
+            if isinstance(data, dict) and "error" in data and not str(data["error"]).startswith(_NOT_COLLECTED):
+                failures.append(f"{device_id}/{key}")
+    return failures
 
 
 # ----------------------------------------------------------------------
@@ -405,13 +536,18 @@ def _normalize(raw_results: dict, device_contexts: List[DeviceContext], resource
             if data is None or (isinstance(data, dict) and "error" in data):
                 continue
 
-            if resource.is_aggregate:
-                records.append(resource.normalizer(
-                    data, device, run_timestamp, run_timestamp, run_timestamp, **resource.normalizer_kwargs
-                ))
-            else:
-                for entry in data:
-                    records.append(resource.normalizer(entry, device, run_timestamp, **resource.normalizer_kwargs))
+            # Several REST field shapes are unconfirmed against a live device
+            # (pan_api_research.md), so one unexpected record must be skipped
+            # and logged, not allowed to abort the whole run's publish.
+            items = [data] if resource.is_aggregate else data
+            for item in items:
+                try:
+                    records.append(resource.normalizer(item, device, run_timestamp, **resource.normalizer_kwargs))
+                except Exception as exc:
+                    logger.error(
+                        "normalize_failed device=%s key=%s error=%s record_skipped",
+                        device_id, resource.key, exc,
+                    )
 
     return records
 
@@ -489,6 +625,19 @@ def main() -> None:
     else:
         _publish(records)
 
+    # Fail loudly, but only after publishing whatever did collect: a run that
+    # returns normally reads as a green run to Azure Functions / cron.
+    failures = _collection_failures(raw_results)
+    shown = ", ".join(failures[:20]) + (f" (+{len(failures) - 20} more)" if len(failures) > 20 else "")
+    if not records:
+        raise CollectionError(f"no records collected; failed: {shown or 'none (nothing in scope)'}")
+    if failures:
+        raise CollectionError(f"{len(records)} records published, but {len(failures)} collection(s) failed: {shown}")
+
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except CollectionError as exc:
+        logger.error("run_failed %s", exc)
+        sys.exit(1)

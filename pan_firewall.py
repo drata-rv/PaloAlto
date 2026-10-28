@@ -154,22 +154,28 @@ class PanFirewallConnector(PanBaseConnector):
         data = self._rest_get("Policies/SecurityRules", params=params)
         return data.get("result", {}).get("entry", [])
 
-    def get_security_pre_rules(self, device_group: str) -> list:
+    def get_security_pre_rules(self, device_group: Optional[str] = None, location: str = "device-group") -> list:
         """
-        Panorama device-group Pre Rules (evaluated before local firewall rules).
+        Panorama Pre Rules (evaluated before local firewall rules): a device
+        group's own (location=device-group) or the Shared rulebase
+        (location=shared, applies to every device group -- documented valid
+        location on Panorama: shared | device-group).
         CONFIRMED: docs.paloaltonetworks.com/pan-os/11-1/.../work-with-policy-rules-on-panorama-rest-api
         Call against Panorama's own host.
         """
-        data = self._rest_get("Policies/SecurityPreRules", params={"location": "device-group", "device-group": device_group})
+        params = self._location_params(location, None, device_group)
+        data = self._rest_get("Policies/SecurityPreRules", params=params)
         return data.get("result", {}).get("entry", [])
 
-    def get_security_post_rules(self, device_group: str) -> list:
+    def get_security_post_rules(self, device_group: Optional[str] = None, location: str = "device-group") -> list:
         """
-        Panorama device-group Post Rules (evaluated after local firewall rules).
+        Panorama Post Rules (evaluated after local firewall rules); same
+        location semantics as get_security_pre_rules.
         CONFIRMED: docs.paloaltonetworks.com/pan-os/11-1/.../work-with-policy-rules-on-panorama-rest-api
         Call against Panorama's own host.
         """
-        data = self._rest_get("Policies/SecurityPostRules", params={"location": "device-group", "device-group": device_group})
+        params = self._location_params(location, None, device_group)
+        data = self._rest_get("Policies/SecurityPostRules", params=params)
         return data.get("result", {}).get("entry", [])
 
     # ------------------------------------------------------------------
@@ -201,15 +207,18 @@ class PanFirewallConnector(PanBaseConnector):
         CONFIRMED filter field: `category-of-threatid` (not `subtype` — that
         field has no `dns` value at all, see pan_api_research.md section 5).
         The production collection path (pan_main.py's `_DNS_THREAT_QUERY`)
-        already passes an OR'd query across every confirmed example category
-        value (dns-c2, adns-hijacking, ddns, parked, malware) by default —
-        this method's own default of `query=None` only matters for a caller
-        that invokes it directly (ad-hoc use, tests), not for a real run.
+        already passes an OR'd query over the documented DNS threat
+        categories (dns-c2, adns-hijacking, dns-ddns, dns-parked,
+        dns-malware, dns-grayware) by default — this method's own default of
+        `query=None` only matters for a caller that invokes it directly
+        (ad-hoc use, tests), not for a real run.
 
-        Still open: the full category-value enumeration isn't exhaustively
-        documented anywhere (Palo Alto's own docs say "...(etc)"), so the
-        OR'd list above may not be complete. Revisit once Suncoast confirms
-        the full list against a live device.
+        Still open: Palo Alto's docs list the categories as examples ("...
+        etc"), so the list may be incomplete (e.g. phishing / proxy-avoidance
+        / newly-registered-domain category names are not documented in what
+        was found). On the first live run, compare distinct `thr_category`
+        values in an unfiltered Monitor > Logs > Threat view against the
+        list in pan_main.py.
         """
         if query is None:
             logger.warning(

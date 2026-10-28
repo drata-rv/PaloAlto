@@ -77,12 +77,41 @@ def _device_fields(device: Any) -> dict:
     }
 
 
-def _member_list(node: Optional[dict]) -> Optional[list]:
-    """PAN REST 'member-list' fields come back as {"member": [...]}."""
+def _member_list(node: Any) -> Optional[list]:
+    """
+    PAN REST 'member-list' fields come back as {"member": [...]} (confirmed
+    in official REST examples). Also tolerates a bare list/string, since the
+    REST JSON byte-shape of some nested fields (e.g. profile-setting.group)
+    isn't confirmed against a live device -- a surprise shape must not
+    crash normalization of the whole run.
+    """
     if not node:
         return None
-    members = node.get("member")
+    members = node.get("member") if isinstance(node, dict) else node
+    if isinstance(members, str):
+        members = [members]
     return list(members) if members else None
+
+
+def _as_list(node: Any) -> list:
+    """PAN REST 'entry' collections are arrays; tolerate a lone object."""
+    if not node:
+        return []
+    return node if isinstance(node, list) else [node]
+
+
+def _location_id_part(entry: dict) -> str:
+    """Every REST entry carries @location (vsys | shared | panorama-pushed |
+    device-group). Folded into record ids so the same object name defined in
+    two locations can't collide and overwrite itself in Drata."""
+    location = entry.get("@location")
+    return f"{location}:" if location else ""
+
+
+def _norm_action(value: Any) -> str:
+    """PAN docs write multi-word actions both ways ("reset client" in the
+    traffic-log table, "reset-client" in syslog/XML) -- normalize."""
+    return (value or "").strip().lower().replace(" ", "-")
 
 
 # ── Licenses ──────────────────────────────────────────────────────────────────
@@ -121,12 +150,13 @@ def normalize_url_filtering_profile(entry: dict, device: Any, run_timestamp: str
     """
     name = entry.get("@name")
     return _build(
-        id=f"{device.id}:url_filtering_profile:{name}",
+        id=f"{device.id}:url_filtering_profile:{_location_id_part(entry)}{name}",
         service=_service_for(device),
         evidenceType="URL_FILTERING_PROFILE",
         name=name,
         status="CONFIGURED",
         timestamp=run_timestamp,
+        location=entry.get("@location"),
         blockedCategories=_member_list(entry.get("block")),
         alertCategories=_member_list(entry.get("alert")),
         allowCategories=_member_list(entry.get("allow")),
@@ -145,20 +175,21 @@ def normalize_dns_security_profile(entry: dict, device: Any, run_timestamp: str)
     confirmed naming trap, don't conflate the two).
     """
     name = entry.get("@name")
-    categories = (
-        entry.get("botnet-domains", {}).get("dns-security-categories", {}).get("entry", [])
+    categories = _as_list(
+        (entry.get("botnet-domains") or {}).get("dns-security-categories", {}).get("entry")
     )
     dns_security_categories = [
         _build(category=c.get("@name"), action=c.get("action"), logLevel=c.get("log-level"))
         for c in categories
     ]
     return _build(
-        id=f"{device.id}:dns_security_profile:{name}",
+        id=f"{device.id}:dns_security_profile:{_location_id_part(entry)}{name}",
         service=_service_for(device),
         evidenceType="DNS_SECURITY_PROFILE",
         name=name,
         status="CONFIGURED",
         timestamp=run_timestamp,
+        location=entry.get("@location"),
         dnsSecurityCategories=dns_security_categories or None,
         enabledCategoryCount=len(dns_security_categories) or None,
         **_device_fields(device),
@@ -194,13 +225,14 @@ def normalize_security_rule(entry: dict, device: Any, run_timestamp: str, rule_s
         for category, members in (profile_setting.get("profiles") or {}).items()
     }
     return _build(
-        id=f"{device.id}:security_rule:{rule_scope}:{name}",
+        id=f"{device.id}:security_rule:{rule_scope}:{_location_id_part(entry)}{name}",
         service=_service_for(device),
         evidenceType="SECURITY_RULE",
         name=name,
         status="DISABLED" if entry.get("disabled") == "yes" else "ENABLED",
         timestamp=run_timestamp,
         ruleScope=rule_scope,
+        location=entry.get("@location"),
         action=entry.get("action"),
         applications=_member_list(entry.get("application")),
         sourceZones=_member_list(entry.get("from")),
@@ -212,89 +244,108 @@ def normalize_security_rule(entry: dict, device: Any, run_timestamp: str, rule_s
     )
 
 
-# ── Log Summaries (aggregated -- one record per device per run, not one per raw log line) ─────
+# ── Log Summaries (aggregated -- one record per device per log type, refreshed every run) ─────
+#
+# Each summary covers the N most recent matching log entries returned by the
+# firewall (N = sample_limit, see pan_main._LOG_SAMPLE_SIZE), NOT a fixed time
+# window. windowStart/windowEnd are the earliest/latest `receive_time` actually
+# present in that sample (device-local time, as PAN returns it), so they
+# describe the data honestly; logLimitReached says whether the sample was capped
+# (totalLogCount is then a floor, not a true count).
+#
+# The record id is stable per device + log type, so each run upserts the same
+# record instead of accumulating a new one every day.
 
 def _log_summary(
     entries: list,
     device: Any,
     run_timestamp: str,
-    window_start: str,
-    window_end: str,
     evidence_type: str,
     label: str,
     id_prefix: str,
     affected_count: int,
     breakdown_field: Optional[str],
     breakdown_key: Optional[str],
+    sample_limit: Optional[int],
 ) -> dict:
     breakdown = None
     if breakdown_field:
-        breakdown = dict(Counter(e.get(breakdown_field, "unknown") for e in entries)) or None
+        breakdown = dict(Counter(e.get(breakdown_field) or "unknown" for e in entries)) or None
+    times = sorted(t for t in (e.get("receive_time") for e in entries) if t)
     return _build(
-        id=f"{device.id}:{id_prefix}:{window_start}_{window_end}",
+        id=f"{device.id}:{id_prefix}",
         service=_service_for(device),
         evidenceType=evidence_type,
-        name=f"{label} — {getattr(device, 'hostname', device.id)}",
+        name=f"{label} - {getattr(device, 'hostname', device.id)}",
         status="CONFIGURED",
         timestamp=run_timestamp,
         totalLogCount=len(entries),
         affectedCount=affected_count,
-        windowStart=window_start,
-        windowEnd=window_end,
+        windowStart=times[0] if times else None,
+        windowEnd=times[-1] if times else None,
+        logLimitReached=(len(entries) >= sample_limit) if sample_limit else None,
         **({breakdown_key: breakdown} if breakdown_key else {}),
         **_device_fields(device),
     )
 
 
-def normalize_traffic_log_summary(entries: list, device: Any, run_timestamp: str, window_start: str, window_end: str) -> dict:
+def _non_allow(entries: list) -> int:
+    return sum(1 for e in entries if _norm_action(e.get("action")) not in ("", "allow"))
+
+
+def normalize_traffic_log_summary(entries: list, device: Any, run_timestamp: str, sample_limit: Optional[int] = None) -> dict:
     """
     Source: PanFirewallConnector.get_traffic_logs(). Always emits exactly
     one record per device per run, even at zero count, so "no denied
     traffic occurred" is distinguishable from "collector didn't run".
-    affectedCount = entries whose `action` looks like a deny/drop (best-effort
-    field name -- pan_api_research.md's captured example confirms `action`
-    exists on traffic log entries but doesn't enumerate every possible value).
+
+    affectedCount = entries whose `action` is anything other than allow.
+    PAN's documented traffic-log actions are allow, deny, drop, drop ICMP,
+    reset client, reset server, reset both -- everything except allow is an
+    enforcement action (docs.paloaltonetworks.com/ngfw/administration/
+    monitoring/use-syslog-for-monitoring/syslog-field-descriptions/traffic-log-fields).
     """
-    denied = sum(1 for e in entries if e.get("action") in {"deny", "drop", "reset-server", "reset-client"})
     return _log_summary(
-        entries, device, run_timestamp, window_start, window_end,
+        entries, device, run_timestamp,
         evidence_type="TRAFFIC_LOG_SUMMARY", label="Traffic Log Summary",
-        id_prefix="traffic", affected_count=denied,
+        id_prefix="traffic", affected_count=_non_allow(entries),
         breakdown_field="action", breakdown_key="actionBreakdown",
+        sample_limit=sample_limit,
     )
 
 
-def normalize_url_filtering_log_summary(entries: list, device: Any, run_timestamp: str, window_start: str, window_end: str) -> dict:
+def normalize_url_filtering_log_summary(entries: list, device: Any, run_timestamp: str, sample_limit: Optional[int] = None) -> dict:
     """
     Source: PanFirewallConnector.get_url_filtering_logs().
-    affectedCount = entries whose `action` looks like a block/alert (best-effort
-    field name, same caveat as normalize_traffic_log_summary).
+    affectedCount = entries whose `action` is anything other than allow
+    (alert, block-url, block-continue, continue, block-override, override,
+    override-lockout, deny, drop, reset-*). `category` on a URL log entry is
+    the URL category, so the breakdown by `category` is correct here.
     """
-    flagged = sum(1 for e in entries if e.get("action") in {"block-url", "block", "alert", "continue", "override"})
     return _log_summary(
-        entries, device, run_timestamp, window_start, window_end,
+        entries, device, run_timestamp,
         evidence_type="URL_FILTERING_LOG_SUMMARY", label="URL Filtering Log Summary",
-        id_prefix="urlFiltering", affected_count=flagged,
+        id_prefix="urlFiltering", affected_count=_non_allow(entries),
         breakdown_field="category", breakdown_key="categoryBreakdown",
+        sample_limit=sample_limit,
     )
 
 
-def normalize_dns_threat_log_summary(entries: list, device: Any, run_timestamp: str, window_start: str, window_end: str) -> dict:
+def normalize_dns_threat_log_summary(entries: list, device: Any, run_timestamp: str, sample_limit: Optional[int] = None) -> dict:
     """
     Source: PanFirewallConnector.get_dns_threat_logs() -- Threat log filtered
-    to `category-of-threatid` per pan_api_research.md section 5 (the
-    confirmed-correct filter field, replacing the wrong `subtype eq dns`
-    guess). Every entry returned by a correctly-filtered call is itself a
-    DNS threat match, so affectedCount == totalLogCount here (unlike the
-    other two log summaries, which count a subset of a broader log stream).
-    Breakdown field name (`category`) is a best-effort guess -- the exact
-    raw log-entry tag PAN-OS uses for threat category is not confirmed by
-    any example in the research doc (only the *query filter* field name,
-    `category-of-threatid`, is confirmed).
+    on `category-of-threatid`. Every entry returned by a correctly-filtered
+    call is itself a DNS threat match, so affectedCount == totalLogCount.
+
+    Breakdown is by `thr_category` ("Threat Category", which carries values
+    like dns-c2). NOT `category`: on a threat log entry `category` is the URL
+    category (or "any" for non-URL subtypes), per PAN's threat-log field
+    table -- grouping by it would report every DNS threat as "any".
     """
     return _log_summary(
-        entries, device, run_timestamp, window_start, window_end,
+        entries, device, run_timestamp,
         evidence_type="DNS_THREAT_LOG_SUMMARY", label="DNS Threat Log Summary",
         id_prefix="dnsThreat", affected_count=len(entries),
-        breakdown_field="category", breakdown_key="categoryBreakdown",
+        breakdown_field="thr_category", breakdown_key="categoryBreakdown",
+        sample_limit=sample_limit,
     )
